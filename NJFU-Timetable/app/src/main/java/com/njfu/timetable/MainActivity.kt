@@ -4,9 +4,11 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -18,6 +20,7 @@ import com.njfu.timetable.data.AppPrefs
 import com.njfu.timetable.data.Course
 import com.njfu.timetable.data.SectionTimes
 import com.njfu.timetable.data.TimetableStore
+import com.njfu.timetable.reminder.ReminderScheduler
 import com.njfu.timetable.sync.SyncEngine
 import com.njfu.timetable.sync.SyncJobService
 import com.njfu.timetable.ui.CourseEditor
@@ -60,6 +63,7 @@ class MainActivity : Activity() {
         SyncJobService.schedule(this)
         week = currentWeek()
         reload()
+        askNotificationPermission()
     }
 
     override fun onResume() {
@@ -223,6 +227,19 @@ class MainActivity : Activity() {
         courses = store.loadCourses()
         renderWeek()
         renderStatus()
+        // 课表内容或设置变化后立刻重排最近的一条上课提醒
+        ReminderScheduler.schedule(this)
+    }
+
+    /** Android 13 起发通知需要运行时权限。 */
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQ_NOTIFY)
     }
 
     private fun renderWeek() {
@@ -633,5 +650,6 @@ class MainActivity : Activity() {
 
     private companion object {
         const val REQ_LOGIN = 11
+        const val REQ_NOTIFY = 12
     }
 }

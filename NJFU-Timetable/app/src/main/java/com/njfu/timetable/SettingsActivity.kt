@@ -1,10 +1,14 @@
 package com.njfu.timetable
 
 import android.app.Activity
+import android.app.AlarmManager
 import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -17,6 +21,7 @@ import android.widget.Toast
 import com.njfu.timetable.data.AppPrefs
 import com.njfu.timetable.data.SectionTimes
 import com.njfu.timetable.data.TimetableStore
+import com.njfu.timetable.reminder.ReminderScheduler
 import com.njfu.timetable.sync.SyncEngine
 import com.njfu.timetable.ui.Ui
 
@@ -29,6 +34,9 @@ class SettingsActivity : Activity() {
     private lateinit var termField: EditText
     private lateinit var startField: EditText
     private lateinit var weekendSwitch: Switch
+    private lateinit var remindSwitch: Switch
+    private lateinit var soundSwitch: Switch
+    private lateinit var leadField: EditText
     private lateinit var status: TextView
     private var selectedCampus = "白马"
 
@@ -168,6 +176,38 @@ class SettingsActivity : Activity() {
         campusCard.addView(campusHint)
         content.addView(campusCard)
 
+        // 上课提醒卡片：提前分钟数可改，默认只震动，可切提示音
+        val remindCard = card()
+        remindCard.addView(sectionTitle("上课提醒"))
+        remindSwitch = Switch(this).apply {
+            text = "上课前用状态栏提醒"
+            textSize = 13f
+            setTextColor(Ui.TEXT_PRIMARY)
+            isChecked = prefs.remindEnabled
+        }
+        remindCard.addView(remindSwitch)
+        remindCard.addView(fieldLabel("提前多少分钟（1-180，默认 25）"))
+        leadField = input("25", prefs.remindMinutes.toString(), false)
+        leadField.inputType = InputType.TYPE_CLASS_NUMBER
+        remindCard.addView(leadField)
+        soundSwitch = Switch(this).apply {
+            text = "同时播放提示音（默认仅震动）"
+            textSize = 13f
+            setTextColor(Ui.TEXT_PRIMARY)
+            isChecked = prefs.remindSound
+            setPadding(0, dp(10f), 0, 0)
+        }
+        remindCard.addView(soundSwitch)
+        val remindHint = Ui.text(
+            this,
+            "按校区作息表计算上课时间；同一天连续的同名课程只在第一段提醒。提醒由系统闹钟触发，App 没打开也能收到。",
+            10.5f,
+            Ui.TEXT_SECONDARY
+        )
+        remindHint.setPadding(0, dp(8f), 0, 0)
+        remindCard.addView(remindHint)
+        content.addView(remindCard)
+
         // 操作按钮
         val sync = primaryButton("保存并登录同步")
         sync.setOnClickListener {
@@ -192,6 +232,12 @@ class SettingsActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll)
         setContentView(root)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 从系统「闹钟与提醒」授权页返回后，用新的权限状态重排一次
+        if (this::leadField.isInitialized) ReminderScheduler.schedule(this)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -294,13 +340,45 @@ class SettingsActivity : Activity() {
             status.text = "学期起始日期格式应为 yyyy-MM-dd"
             return false
         }
+        val lead = leadField.text.toString().trim().toIntOrNull()
+        if (lead == null || lead !in 1..180) {
+            status.text = "提前分钟数请填 1-180 的数字"
+            return false
+        }
         prefs.username = userField.text.toString()
         prefs.password = passField.text.toString()
         prefs.termName = termField.text.toString().ifBlank { "本学期" }
         prefs.termStart = start
         prefs.campus = selectedCampus
         prefs.dayCount = if (weekendSwitch.isChecked) 7 else 5
+        prefs.remindEnabled = remindSwitch.isChecked
+        prefs.remindMinutes = lead
+        prefs.remindSound = soundSwitch.isChecked
+        ReminderScheduler.schedule(this)
+        askExactAlarm()
         return true
+    }
+
+    /** Android 12 起精确闹钟要单独授权，否则提醒可能晚十几分钟。 */
+    private fun askExactAlarm() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !prefs.remindEnabled) return
+        val alarm = getSystemService(AlarmManager::class.java)
+        if (alarm.canScheduleExactAlarms()) return
+        AlertDialog.Builder(this)
+            .setTitle("开启「闹钟与提醒」权限")
+            .setMessage("为了在上课前准点提醒，需要允许本应用设置精确闹钟。")
+            .setPositiveButton("去开启") { _, _ ->
+                runCatching {
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+            }
+            .setNegativeButton("暂不", null)
+            .show()
     }
 
     private fun runSync() {

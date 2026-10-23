@@ -127,6 +127,19 @@ class AppPrefs(context: Context) {
         get() = sp.getString("studentName", "") ?: ""
         set(value) = sp.edit().putString("studentName", value).apply()
 
+    /** 上课提醒：默认开启，提前 25 分钟，只震动。 */
+    var remindEnabled: Boolean
+        get() = sp.getBoolean("remindEnabled", true)
+        set(value) = sp.edit().putBoolean("remindEnabled", value).apply()
+
+    var remindMinutes: Int
+        get() = sp.getInt("remindMinutes", 25)
+        set(value) = sp.edit().putInt("remindMinutes", value.coerceIn(1, 180)).apply()
+
+    var remindSound: Boolean
+        get() = sp.getBoolean("remindSound", false)
+        set(value) = sp.edit().putBoolean("remindSound", value).apply()
+
     companion object {
         const val DEFAULT_BASE = "https://jwxt.whit.edu.cn"
     }
