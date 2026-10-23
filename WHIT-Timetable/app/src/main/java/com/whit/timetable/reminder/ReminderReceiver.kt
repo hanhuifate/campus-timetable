@@ -29,7 +29,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (room.isNotEmpty()) append(" · $room")
                 append("，${prefs.remindMinutes} 分钟后上课")
             }
-            ReminderNotifier.notify(context, "快要上课：$name", detail, prefs.remindTone)
+            ReminderNotifier.notify(context, "快要上课：$name", detail, prefs.remindTone, startAt)
         }
 
         ReminderScheduler.schedule(context)

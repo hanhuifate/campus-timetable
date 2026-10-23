@@ -20,6 +20,7 @@ import com.njfu.timetable.data.AppPrefs
 import com.njfu.timetable.data.Course
 import com.njfu.timetable.data.SectionTimes
 import com.njfu.timetable.data.TimetableStore
+import com.njfu.timetable.reminder.ReminderNotifier
 import com.njfu.timetable.reminder.ReminderScheduler
 import com.njfu.timetable.sync.SyncEngine
 import com.njfu.timetable.sync.SyncJobService
@@ -68,6 +69,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // 从通知进来就当作已读：停掉还在响的提示音并撤掉通知
+        ReminderNotifier.stop(this)
         week = currentWeek()
         reload()
     }

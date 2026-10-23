@@ -3,6 +3,7 @@ package com.njfu.timetable
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.AlertDialog
+import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Typeface
@@ -39,8 +40,11 @@ class SettingsActivity : Activity() {
     private lateinit var remindSwitch: Switch
     private lateinit var leadField: EditText
     private lateinit var status: TextView
+    private lateinit var permStatus: TextView
+    private lateinit var alarmAction: TextView
     private var selectedCampus = "白马"
     private var selectedTone = ReminderNotifier.TONE_VIBRATE
+    private var selectedRingSeconds = 4
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,7 +69,7 @@ class SettingsActivity : Activity() {
         }
         val back = Ui.text(this, "返回", 13f, Ui.ACCENT, gravity = Gravity.CENTER).apply {
             setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
-            setOnClickListener { finish() }
+            setOnClickListener { saveAndFinish() }
         }
         val title = Ui.text(this, "设置", 17f, Ui.TEXT_PRIMARY, bold = true).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -199,6 +203,7 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
+        var syncRingRow: () -> Unit = {}
         val toneChips = ArrayList<TextView>()
         ReminderNotifier.TONES.forEach { tone ->
             val chip = Ui.text(
@@ -217,6 +222,7 @@ class SettingsActivity : Activity() {
                     toneChips.forEach { view ->
                         styleCampusChip(view, view.text.toString() == ReminderNotifier.label(selectedTone))
                     }
+                    syncRingRow()
                 }
             }
             toneChips.add(chip)
@@ -224,6 +230,46 @@ class SettingsActivity : Activity() {
         }
         toneChips.forEach { styleCampusChip(it, it.text.toString() == ReminderNotifier.label(selectedTone)) }
         remindCard.addView(toneRow)
+
+        // 闹钟音 / 铃声较长，单独给个响铃时长，默认 4 秒；仅震动、通知音不需要这一行
+        val ringLabel = fieldLabel("响铃时长（闹钟音 / 铃声，默认 4 秒）")
+        remindCard.addView(ringLabel)
+        val ringOptions = listOf(2, 4, 6, 10, 15)
+        selectedRingSeconds = prefs.ringSeconds.takeIf { it in ringOptions } ?: 4
+        val ringRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val ringChips = ArrayList<TextView>()
+        ringOptions.forEach { seconds ->
+            val chip = Ui.text(
+                this,
+                "${seconds}s",
+                11.5f,
+                Ui.TEXT_SECONDARY,
+                bold = true,
+                gravity = Gravity.CENTER
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
+                    marginEnd = dp(4f)
+                }
+                setOnClickListener {
+                    selectedRingSeconds = seconds
+                    ringChips.forEach { view -> styleCampusChip(view, view.text.toString() == "${seconds}s") }
+                }
+            }
+            ringChips.add(chip)
+            ringRow.addView(chip)
+        }
+        ringChips.forEach { styleCampusChip(it, it.text.toString() == "${selectedRingSeconds}s") }
+        remindCard.addView(ringRow)
+
+        syncRingRow = {
+            val show = ReminderNotifier.popsUp(selectedTone)
+            ringLabel.visibility = if (show) View.VISIBLE else View.GONE
+            ringRow.visibility = if (show) View.VISIBLE else View.GONE
+        }
+        syncRingRow()
 
         val preview = Ui.text(
             this,
@@ -243,7 +289,7 @@ class SettingsActivity : Activity() {
         remindCard.addView(preview)
         val remindHint = Ui.text(
             this,
-            "按校区作息表计算上课时间；同一天连续的同名课程只在第一段提醒。提醒由系统闹钟触发，App 没打开也能收到。",
+            "按校区作息表计算上课时间；同一天连续的同名课程只在第一段提醒。提醒由系统闹钟触发，App 没打开也能收到。选闹钟音或铃声时通知会一直挂着，点「停止」、按电源键或音量键都能关掉。",
             10.5f,
             Ui.TEXT_SECONDARY
         )
@@ -251,18 +297,59 @@ class SettingsActivity : Activity() {
         remindCard.addView(remindHint)
         content.addView(remindCard)
 
+        // 权限引导：小米 / 澎湃等机型默认把提醒收进「更多通知」，需要用户在系统设置里打开
+        val permCard = card()
+        permCard.addView(sectionTitle("通知与提醒权限"))
+        permStatus = Ui.text(this, "", 11.5f, Ui.TEXT_SECONDARY)
+        permCard.addView(permStatus)
+        val notifAction = Ui.text(
+            this,
+            "打开通知设置",
+            12.5f,
+            Ui.ACCENT,
+            bold = true,
+            gravity = Gravity.CENTER
+        ).apply {
+            background = Ui.rounded(this@SettingsActivity, 0xFFE6ECFA.toInt(), 10f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(40f)
+            ).apply { topMargin = dp(9f) }
+            setOnClickListener { openNotificationSettings() }
+        }
+        permCard.addView(notifAction)
+        val permHint = Ui.text(
+            this,
+            "在「上课提醒」里打开「允许通知」和「悬浮通知」，提醒才会以横幅弹出；只开允许通知时通知会收进「更多通知」。",
+            10.5f,
+            Ui.TEXT_SECONDARY
+        )
+        permHint.setPadding(0, dp(8f), 0, 0)
+        permCard.addView(permHint)
+        alarmAction = Ui.text(
+            this,
+            "打开「闹钟与提醒」权限",
+            12.5f,
+            Ui.ACCENT,
+            bold = true,
+            gravity = Gravity.CENTER
+        ).apply {
+            background = Ui.rounded(this@SettingsActivity, 0xFFE6ECFA.toInt(), 10f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(40f)
+            ).apply { topMargin = dp(9f) }
+            setOnClickListener { openExactAlarmSettings() }
+        }
+        permCard.addView(alarmAction)
+        content.addView(permCard)
+
         // 操作按钮
         val sync = primaryButton("保存并登录同步")
         sync.setOnClickListener {
             if (saveFields()) startActivityForResult(Intent(this, CasLoginActivity::class.java), REQ_LOGIN)
         }
         content.addView(sync)
-
-        val save = ghostButton("仅保存设置")
-        save.setOnClickListener {
-            if (saveFields()) status.text = "设置已保存"
-        }
-        content.addView(save)
 
         val diag = ghostButton("查看诊断日志（抓取失败时用）")
         diag.setOnClickListener { showDiagnostics() }
@@ -279,8 +366,74 @@ class SettingsActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // 从系统「闹钟与提醒」授权页返回后，用新的权限状态重排一次
-        if (this::leadField.isInitialized) ReminderScheduler.schedule(this)
+        // 从系统授权页返回后，用新的权限状态重排一次
+        if (this::leadField.isInitialized) {
+            ReminderScheduler.schedule(this)
+            refreshPermissionStatus()
+        }
+    }
+
+    /** 展示通知、提醒分类、精确闹钟的实际授权状态，并隐式建好渠道。 */
+    private fun refreshPermissionStatus() {
+        if (!this::permStatus.isInitialized) return
+        // 先建渠道，用户才能在系统设置里看到「上课提醒」分类并打开悬浮通知
+        ReminderNotifier.ensureChannel(this)
+        val manager = getSystemService(NotificationManager::class.java)
+        val enabled = manager.areNotificationsEnabled()
+        val channel = manager.getNotificationChannel(ReminderNotifier.CHANNEL_ALERT)
+        permStatus.text = when {
+            !enabled -> "通知：已关闭，提醒不会显示"
+            channel == null || channel.importance >= NotificationManager.IMPORTANCE_HIGH ->
+                "通知：已允许。若系统仍不弹横幅，请把「上课提醒」的悬浮通知打开。"
+            channel.importance >= NotificationManager.IMPORTANCE_DEFAULT ->
+                "通知：已允许，但横幅被关闭，提醒会收进「更多通知」"
+            else -> "通知：该提醒分类被系统关闭了"
+        }
+
+        val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
+        alarmAction.text = if (exact) "精确闹钟：已开启" else "打开「闹钟与提醒」权限"
+        alarmAction.setTextColor(if (exact) Ui.TEXT_SECONDARY else Ui.ACCENT)
+        alarmAction.background = Ui.rounded(
+            this,
+            if (exact) 0xFFF1F3F6.toInt() else 0xFFE6ECFA.toInt(),
+            10f
+        )
+    }
+
+    /** 跳到本应用的「上课提醒」通知分类，那里同时有「允许通知」和「悬浮通知」两个开关。 */
+    private fun openNotificationSettings() {
+        val candidates = listOf(
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, ReminderNotifier.CHANNEL_ALERT),
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+        )
+        for (intent in candidates) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (runCatching { startActivity(intent) }.isSuccess) return
+        }
+        Toast.makeText(
+            this,
+            "请到「设置 → 应用 → ${getString(R.string.app_name)} → 通知」手动打开",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }.onFailure {
+            Toast.makeText(this, "请到「设置 → 应用 → 特殊权限 → 闹钟与提醒」手动打开", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -397,9 +550,22 @@ class SettingsActivity : Activity() {
         prefs.remindEnabled = remindSwitch.isChecked
         prefs.remindMinutes = lead
         prefs.remindTone = selectedTone
+        prefs.ringSeconds = selectedRingSeconds
         ReminderScheduler.schedule(this)
-        askExactAlarm()
         return true
+    }
+
+    /** 返回时自动保存，避免改完设置忘记保存。 */
+    private fun saveAndFinish() {
+        if (!saveFields()) return
+        if (askExactAlarm()) return
+        Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
+        finish()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        saveAndFinish()
     }
 
     /** 试听：按当前选中的提醒方式发一条示例通知。 */
@@ -408,7 +574,7 @@ class SettingsActivity : Activity() {
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            status.text = "请先允许通知权限，否则收不到提醒"
+            status.text = "请先在下方「通知与提醒权限」里打开通知，否则收不到提醒"
             return
         }
         val minutes = leadField.text.toString().trim().toIntOrNull()?.coerceIn(1, 180)
@@ -417,11 +583,11 @@ class SettingsActivity : Activity() {
         status.text = "已发送示例提醒：${ReminderNotifier.label(selectedTone)}"
     }
 
-    /** Android 12 起精确闹钟要单独授权，否则提醒可能晚十几分钟。 */
-    private fun askExactAlarm() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !prefs.remindEnabled) return
+    /** Android 12 起精确闹钟要单独授权，否则提醒可能晚十几分钟。返回 true 表示弹了授权提示。 */
+    private fun askExactAlarm(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !prefs.remindEnabled) return false
         val alarm = getSystemService(AlarmManager::class.java)
-        if (alarm.canScheduleExactAlarms()) return
+        if (alarm.canScheduleExactAlarms()) return false
         AlertDialog.Builder(this)
             .setTitle("开启「闹钟与提醒」权限")
             .setMessage("为了在上课前准点提醒，需要允许本应用设置精确闹钟。")
@@ -436,7 +602,9 @@ class SettingsActivity : Activity() {
                 }
             }
             .setNegativeButton("暂不", null)
+            .setOnDismissListener { if (!isFinishing) finish() }
             .show()
+        return true
     }
 
     private fun runSync() {
