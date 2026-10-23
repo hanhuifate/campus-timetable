@@ -18,6 +18,7 @@ import com.njfu.timetable.data.AppPrefs
 import com.njfu.timetable.data.Course
 import com.njfu.timetable.data.TimetableStore
 import com.njfu.timetable.net.JwxtParser
+import com.njfu.timetable.sync.SyncEngine
 import com.njfu.timetable.ui.Ui
 import org.json.JSONObject
 
@@ -327,14 +328,15 @@ class CasLoginActivity : Activity() {
         )
         prefs.needsLogin = false
 
+        var note = ""
         if (courses.isNotEmpty()) {
-            store.saveImported(courses)
+            note = SyncEngine.mergeNote(store.saveImported(courses))
             store.saveMeta(
                 store.loadMeta().copy(
                     termName = prefs.termName,
                     startDate = prefs.termStart,
                     updatedAt = System.currentTimeMillis(),
-                    syncState = "已更新 ${courses.size} 门课",
+                    syncState = "已更新 ${courses.size} 门课$note",
                     studentName = prefs.studentName
                 )
             )
@@ -347,7 +349,7 @@ class CasLoginActivity : Activity() {
             .joinToString(",")
         store.log("登录成功，保存 ${courses.size} 门课；Cookie 名称=$names")
 
-        Toast.makeText(this, "登录成功，已导入 ${courses.size} 门课", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "登录成功，已导入 ${courses.size} 门课$note", Toast.LENGTH_SHORT).show()
         setResult(RESULT_OK, Intent().putExtra("count", courses.size))
         finish()
     }

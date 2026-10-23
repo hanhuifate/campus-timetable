@@ -1,4 +1,4 @@
-﻿package com.whit.timetable
+package com.whit.timetable
 
 import android.app.Activity
 import android.content.Intent
@@ -17,6 +17,7 @@ import com.whit.timetable.data.AppPrefs
 import com.whit.timetable.data.TimetableMeta
 import com.whit.timetable.data.TimetableStore
 import com.whit.timetable.net.WhitParser
+import com.whit.timetable.sync.SyncEngine
 import com.whit.timetable.ui.Ui
 import org.json.JSONArray
 import org.json.JSONObject
@@ -347,7 +348,7 @@ class CasLoginActivity : Activity() {
             hint.text = "接口有数据但没解析出课程，请把诊断日志发我"
             return
         }
-        store.saveCourses(courses)
+        val note = SyncEngine.mergeNote(store.saveImported(courses))
         val now = System.currentTimeMillis()
         prefs.lastSync = now
         store.saveMeta(
@@ -355,11 +356,11 @@ class CasLoginActivity : Activity() {
                 termName = prefs.termName,
                 startDate = prefs.termStart,
                 updatedAt = now,
-                syncState = "已更新 ${courses.size} 门课",
+                syncState = "已更新 ${courses.size} 门课$note",
                 studentName = prefs.username
             )
         )
-        hint.text = "已导入 ${courses.size} 门课"
+        hint.text = "已导入 ${courses.size} 门课$note"
         completed = true
         setResult(RESULT_OK, Intent().putExtra("count", courses.size))
         finish()

@@ -415,6 +415,11 @@ class MainActivity : Activity() {
 
     private fun toggleEdit() {
         dismissMenu()
+        // 还没从教务导入课表时不允许编辑，否则自定义课程会和之后导入的课程重叠。
+        if (!editMode && courses.none { !it.custom }) {
+            Toast.makeText(this, "请先「同步」导入教务课表，再添加自定义课程", Toast.LENGTH_LONG).show()
+            return
+        }
         editMode = !editMode
         grid.editMode = editMode
         if (editMode) {

@@ -71,21 +71,31 @@ object SyncEngine {
             return Result(ERROR, "教务返回的课表为空")
         }
 
-        store.saveImported(courses)
+        val merge = store.saveImported(courses)
+        val note = mergeNote(merge)
         store.saveMeta(
             store.loadMeta().copy(
                 termName = prefs.termName,
                 startDate = prefs.termStart,
                 updatedAt = System.currentTimeMillis(),
-                syncState = "已更新 ${courses.size} 门课",
+                syncState = "已更新 ${courses.size} 门课$note",
                 studentName = prefs.studentName
             )
         )
         prefs.cookies = client.cookie
         prefs.lastSync = System.currentTimeMillis()
         prefs.needsLogin = false
-        store.log("同步成功，共 ${courses.size} 门课（学期 $xnm-$xqm）")
-        return Result(OK, "已更新 ${courses.size} 门课")
+        store.log("同步成功，共 ${courses.size} 门课（学期 $xnm-$xqm）$note")
+        return Result(OK, "已更新 ${courses.size} 门课$note")
+    }
+
+    /** 同步后自定义课程的冲突处理结果，拼进提示文案。 */
+    fun mergeNote(merge: TimetableStore.MergeResult): String = when {
+        merge.removed > 0 && merge.trimmed > 0 ->
+            "；${merge.removed} 门自定义课与教务完全重叠已删除，${merge.trimmed} 门已裁掉重叠节次"
+        merge.removed > 0 -> "；${merge.removed} 门自定义课与教务完全重叠已删除"
+        merge.trimmed > 0 -> "；${merge.trimmed} 门自定义课与教务重叠，已裁掉重叠节次"
+        else -> ""
     }
 
     /** 由第一周周一推算：秋季 xqm=3，春季 xqm=12。 */
