@@ -1,0 +1,15 @@
+# Gradle / 构建产物
+.gradle/
+.kotlin/
+build/
+captures/
+*.hprof
+
+# 本机配置
+local.properties
+.idea/
+*.iml
+
+# 系统文件
+.DS_Store
+Thumbs.db
