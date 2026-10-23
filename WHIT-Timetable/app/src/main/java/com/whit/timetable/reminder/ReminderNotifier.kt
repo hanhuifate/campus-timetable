@@ -273,14 +273,17 @@ object ReminderNotifier {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
 
         if (popsUp(tone)) {
-            // 闹钟音 / 铃声：横幅里直接带描边「停止」按钮
-            val view = alertView(context, title, body, stop)
+            // 自定义 RemoteViews 会被 HyperOS 收进「更多通知」不弹横幅，这里保持系统默认视图 + 停止按钮
             builder.setOngoing(false)
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_ALARM)
-                .setStyle(Notification.DecoratedCustomViewStyle())
-                .setCustomContentView(view)
-                .setCustomHeadsUpContentView(view)
+                .addAction(
+                    Notification.Action.Builder(
+                        Icon.createWithResource(context, android.R.drawable.ic_delete),
+                        "停止",
+                        stop
+                    ).build()
+                )
         }
 
         lastId = id

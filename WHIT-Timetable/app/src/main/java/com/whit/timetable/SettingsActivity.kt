@@ -1,4 +1,4 @@
-﻿package com.whit.timetable
+package com.whit.timetable
 
 import android.app.Activity
 import android.app.AlarmManager
@@ -41,7 +41,7 @@ class SettingsActivity : Activity() {
     private lateinit var permStatus: TextView
     private lateinit var alarmAction: TextView
     private var selectedTone = ReminderNotifier.TONE_VIBRATE
-    private var selectedRingSeconds = 4
+    private var selectedRingSeconds = 6
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -185,11 +185,11 @@ class SettingsActivity : Activity() {
         toneChips.forEach { styleToneChip(it, it.text.toString() == ReminderNotifier.label(selectedTone)) }
         remindCard.addView(toneRow)
 
-        // 闹钟音 / 铃声较长，单独给个响铃时长，默认 4 秒；仅震动、通知音不需要这一行
-        val ringLabel = fieldLabel("响铃时长（闹钟音 / 铃声，默认 4 秒）")
+        // 闹钟音 / 铃声较长，单独给个响铃时长，默认 6 秒；仅震动、通知音不需要这一行
+        val ringLabel = fieldLabel("响铃时长（闹钟音 / 铃声，默认 6 秒）")
         remindCard.addView(ringLabel)
         val ringOptions = listOf(2, 4, 6, 10, 15)
-        selectedRingSeconds = prefs.ringSeconds.takeIf { it in ringOptions } ?: 4
+        selectedRingSeconds = prefs.ringSeconds.takeIf { it in ringOptions } ?: 6
         val ringRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL

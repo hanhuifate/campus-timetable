@@ -1,4 +1,4 @@
-﻿package com.whit.timetable.data
+package com.whit.timetable.data
 
 import android.content.Context
 import android.util.Base64
@@ -142,9 +142,9 @@ class AppPrefs(context: Context) {
             ?: if (sp.getBoolean("remindSound", false)) "notif" else "vibrate"
         set(value) = sp.edit().putString("remindTone", value).apply()
 
-    /** 闹钟音 / 铃声这两种长提示音的响铃时长（秒），默认 4 秒。 */
+    /** 闹钟音 / 铃声这两种长提示音的响铃时长（秒），默认 6 秒。 */
     var ringSeconds: Int
-        get() = sp.getInt("ringSeconds", 4).coerceIn(1, 60)
+        get() = sp.getInt("ringSeconds", 6).coerceIn(1, 60)
         set(value) = sp.edit().putInt("ringSeconds", value.coerceIn(1, 60)).apply()
 
     companion object {
