@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlarmManager
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
@@ -21,6 +22,7 @@ import android.widget.Toast
 import com.njfu.timetable.data.AppPrefs
 import com.njfu.timetable.data.SectionTimes
 import com.njfu.timetable.data.TimetableStore
+import com.njfu.timetable.reminder.ReminderNotifier
 import com.njfu.timetable.reminder.ReminderScheduler
 import com.njfu.timetable.sync.SyncEngine
 import com.njfu.timetable.ui.Ui
@@ -35,10 +37,10 @@ class SettingsActivity : Activity() {
     private lateinit var startField: EditText
     private lateinit var weekendSwitch: Switch
     private lateinit var remindSwitch: Switch
-    private lateinit var soundSwitch: Switch
     private lateinit var leadField: EditText
     private lateinit var status: TextView
     private var selectedCampus = "白马"
+    private var selectedTone = ReminderNotifier.TONE_VIBRATE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -190,14 +192,55 @@ class SettingsActivity : Activity() {
         leadField = input("25", prefs.remindMinutes.toString(), false)
         leadField.inputType = InputType.TYPE_CLASS_NUMBER
         remindCard.addView(leadField)
-        soundSwitch = Switch(this).apply {
-            text = "同时播放提示音（默认仅震动）"
-            textSize = 13f
-            setTextColor(Ui.TEXT_PRIMARY)
-            isChecked = prefs.remindSound
-            setPadding(0, dp(10f), 0, 0)
+        remindCard.addView(fieldLabel("提醒方式（默认仅震动）"))
+        selectedTone = prefs.remindTone.takeIf { it in ReminderNotifier.TONES }
+            ?: ReminderNotifier.TONE_VIBRATE
+        val toneRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        remindCard.addView(soundSwitch)
+        val toneChips = ArrayList<TextView>()
+        ReminderNotifier.TONES.forEach { tone ->
+            val chip = Ui.text(
+                this,
+                ReminderNotifier.label(tone),
+                11.5f,
+                Ui.TEXT_SECONDARY,
+                bold = true,
+                gravity = Gravity.CENTER
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
+                    marginEnd = dp(4f)
+                }
+                setOnClickListener {
+                    selectedTone = tone
+                    toneChips.forEach { view ->
+                        styleCampusChip(view, view.text.toString() == ReminderNotifier.label(selectedTone))
+                    }
+                }
+            }
+            toneChips.add(chip)
+            toneRow.addView(chip)
+        }
+        toneChips.forEach { styleCampusChip(it, it.text.toString() == ReminderNotifier.label(selectedTone)) }
+        remindCard.addView(toneRow)
+
+        val preview = Ui.text(
+            this,
+            "试听当前提醒效果",
+            12f,
+            Ui.ACCENT,
+            bold = true,
+            gravity = Gravity.CENTER
+        ).apply {
+            background = Ui.rounded(this@SettingsActivity, 0xFFE6ECFA.toInt(), 10f)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(40f)
+            ).apply { topMargin = dp(10f) }
+            setOnClickListener { previewReminder() }
+        }
+        remindCard.addView(preview)
         val remindHint = Ui.text(
             this,
             "按校区作息表计算上课时间；同一天连续的同名课程只在第一段提醒。提醒由系统闹钟触发，App 没打开也能收到。",
@@ -353,10 +396,25 @@ class SettingsActivity : Activity() {
         prefs.dayCount = if (weekendSwitch.isChecked) 7 else 5
         prefs.remindEnabled = remindSwitch.isChecked
         prefs.remindMinutes = lead
-        prefs.remindSound = soundSwitch.isChecked
+        prefs.remindTone = selectedTone
         ReminderScheduler.schedule(this)
         askExactAlarm()
         return true
+    }
+
+    /** 试听：按当前选中的提醒方式发一条示例通知。 */
+    private fun previewReminder() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            status.text = "请先允许通知权限，否则收不到提醒"
+            return
+        }
+        val minutes = leadField.text.toString().trim().toIntOrNull()?.coerceIn(1, 180)
+            ?: prefs.remindMinutes
+        ReminderNotifier.preview(this, minutes, selectedTone)
+        status.text = "已发送示例提醒：${ReminderNotifier.label(selectedTone)}"
     }
 
     /** Android 12 起精确闹钟要单独授权，否则提醒可能晚十几分钟。 */

@@ -136,9 +136,11 @@ class AppPrefs(context: Context) {
         get() = sp.getInt("remindMinutes", 25)
         set(value) = sp.edit().putInt("remindMinutes", value.coerceIn(1, 180)).apply()
 
-    var remindSound: Boolean
-        get() = sp.getBoolean("remindSound", false)
-        set(value) = sp.edit().putBoolean("remindSound", value).apply()
+    /** 提醒方式：vibrate / notif / alarm / ringtone，默认只震动。 */
+    var remindTone: String
+        get() = sp.getString("remindTone", "")?.takeIf { it.isNotEmpty() }
+            ?: if (sp.getBoolean("remindSound", false)) "notif" else "vibrate"
+        set(value) = sp.edit().putString("remindTone", value).apply()
 
     companion object {
         const val DEFAULT_BASE = "https://jwxt.whit.edu.cn"
