@@ -23,11 +23,12 @@ class ReminderReceiver : BroadcastReceiver() {
         if (prefs.remindEnabled && name.isNotEmpty() && startAt > 0L &&
             System.currentTimeMillis() - startAt < 30 * 60_000L
         ) {
+            val minutes = ((startAt - System.currentTimeMillis()) / 60_000L).toInt().coerceAtLeast(0)
             val detail = buildString {
                 append("第${sectionStart}-${sectionEnd}节")
                 if (time.isNotEmpty()) append(" $time")
                 if (room.isNotEmpty()) append(" · $room")
-                append("，${prefs.remindMinutes} 分钟后上课")
+                append(if (minutes > 0) "，${minutes} 分钟后上课" else "，即将上课")
             }
             ReminderNotifier.notify(context, "快要上课：$name", detail, prefs.remindTone, startAt)
         }

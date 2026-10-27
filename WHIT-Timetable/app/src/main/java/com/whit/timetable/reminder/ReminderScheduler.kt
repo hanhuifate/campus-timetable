@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.whit.timetable.MainActivity
 import com.whit.timetable.data.AppPrefs
 import com.whit.timetable.data.Course
 import com.whit.timetable.data.SectionTimes
@@ -23,6 +24,7 @@ object ReminderScheduler {
     /** 往后找多少天，足够覆盖长假期间不打开 App 的情况。 */
     private const val LOOKAHEAD_DAYS = 21L
     private const val REQUEST_CODE = 20261023
+    private const val SHOW_REQUEST_CODE = 20261024
 
     data class Due(val course: Course, val startAt: Long, val triggerAt: Long)
 
@@ -34,8 +36,24 @@ object ReminderScheduler {
         val due = next(context) ?: return
         if (!prefs.remindEnabled) return
         val pi = pending(context, due)
+        val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()
+        if (exact) {
+            // 用「闹钟型」精确闹钟：系统按系统闹钟对待，息屏、省电和清理后台后仍会触发
+            val show = PendingIntent.getActivity(
+                context,
+                SHOW_REQUEST_CODE,
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val ok = runCatching {
+                alarm.setAlarmClock(AlarmManager.AlarmClockInfo(due.triggerAt, show), pi)
+                true
+            }.getOrDefault(false)
+            if (ok) return
+        }
         try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()) {
+            if (exact) {
                 alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, due.triggerAt, pi)
             } else {
                 // 没拿到精确闹钟权限时退化为窗口闹钟，误差通常在一分钟内
@@ -90,8 +108,10 @@ object ReminderScheduler {
                     .atZone(zone)
                     .toInstant()
                     .toEpochMilli()
-                val triggerAt = startAt - leadMs
-                if (triggerAt <= now + 3_000L) return@forEachIndexed
+                // 已经开课就不再打扰
+                if (startAt <= now) return@forEachIndexed
+                // 提醒时间已过但还没上课（例如闹钟被系统清掉）时立即补一次
+                val triggerAt = maxOf(startAt - leadMs, now + 1_500L)
                 if (best == null || triggerAt < best!!.triggerAt) {
                     best = Due(course, startAt, triggerAt)
                 }
