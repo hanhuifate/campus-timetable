@@ -87,9 +87,9 @@ object ReminderNotifier {
         else -> "仅震动"
     }
 
-    fun notify(context: Context, title: String, body: String, tone: String, startAt: Long = 0L) {
+    fun notify(context: Context, title: String, body: String, tone: String, startAt: Long = 0L): Boolean {
         playTone(context, tone)
-        post(context, reminderId(startAt), title, body, tone)
+        return post(context, reminderId(startAt), title, body, tone)
     }
 
     /** 设置页的试听：震动、提示音都和正式提醒走同一套逻辑。 */
@@ -236,12 +236,12 @@ object ReminderNotifier {
     private fun previewId(): Int =
         1_500_000 + (System.currentTimeMillis() / 1000L % 500_000L).toInt()
 
-    private fun post(context: Context, id: Int, title: String, body: String, tone: String) {
+    private fun post(context: Context, id: Int, title: String, body: String, tone: String): Boolean {
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
-            return
+            return false
         }
         ensureChannel(context)
 
@@ -268,6 +268,8 @@ object ReminderNotifier {
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
             .setContentIntent(content)
+            // 手动把通知划掉就当作「我知道了」：停止响铃，且不再补发
+            .setDeleteIntent(stop)
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_REMINDER)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
@@ -288,6 +290,7 @@ object ReminderNotifier {
 
         lastId = id
         manager.notify(id, builder.build())
+        return true
     }
 
     private fun alertView(

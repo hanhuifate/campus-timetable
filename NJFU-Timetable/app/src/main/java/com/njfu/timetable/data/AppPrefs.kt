@@ -148,6 +148,18 @@ class AppPrefs(context: Context) {
         get() = sp.getInt("ringSeconds", 6).coerceIn(1, 60)
         set(value) = sp.edit().putInt("ringSeconds", value.coerceIn(1, 60)).apply()
 
+    /** 已提醒过的「开课时间:课程名」，避免补发逻辑把同一条反复重弹。 */
+    fun wasNotified(key: String): Boolean =
+        sp.getStringSet("notifiedKeys", emptySet()).orEmpty().contains(key)
+
+    fun markNotified(key: String) {
+        val keys = sp.getStringSet("notifiedKeys", emptySet()).orEmpty().toMutableSet()
+        if (!keys.add(key)) return
+        // 只留最近 60 条，避免无限增长
+        val trimmed = if (keys.size > 60) keys.toList().takeLast(60).toSet() else keys
+        sp.edit().putStringSet("notifiedKeys", trimmed).apply()
+    }
+
     companion object {
         const val DEFAULT_BASE = "https://jwxt.njfu.edu.cn"
     }

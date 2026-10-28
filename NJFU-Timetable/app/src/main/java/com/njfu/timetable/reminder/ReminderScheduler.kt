@@ -109,6 +109,8 @@ object ReminderScheduler {
                     .toEpochMilli()
                 // 已经开课就不再打扰
                 if (startAt <= now) return@forEachIndexed
+                // 这条已经提醒过（用户划掉或已响完），不要再补发
+                if (prefs.wasNotified("$startAt:${course.name}")) return@forEachIndexed
                 // 提醒时间已过但还没上课（例如闹钟被系统清掉）时立即补一次
                 val triggerAt = maxOf(startAt - leadMs, now + 1_500L)
                 if (best == null || triggerAt < best!!.triggerAt) {

@@ -4,8 +4,8 @@
 
 | 目录 | 学校 | 数据来源 | 安装包 |
 | --- | --- | --- | --- |
-| `NJFU-Timetable/` | 南京林业大学 | `https://jwxt.njfu.edu.cn`（统一认证 CAS） | `apk/南林课表-v32-debug.apk` |
-| `WHIT-Timetable/` | 芜湖职业技术大学 | `https://ehall.whit.edu.cn/publicapp/sys/mykbxt/index.do` | `apk/芜湖课表-v14-debug.apk` |
+| `NJFU-Timetable/` | 南京林业大学 | `https://jwxt.njfu.edu.cn`（统一认证 CAS） | `apk/南林课表-v33-debug.apk` |
+| `WHIT-Timetable/` | 芜湖职业技术大学 | `https://ehall.whit.edu.cn/publicapp/sys/mykbxt/index.do` | `apk/芜湖课表-v15-debug.apk` |
 
 ## 功能
 
@@ -41,6 +41,7 @@
 
 ## 更新记录
 
+- **v33 / v15**：修掉提醒反复弹出的问题——补发逻辑在提醒时间已过时会不断把同一条重新排在一秒后，现在按「开课时间 + 课程名」记账，同一条只提醒一次；手动划掉通知即视为已读，同时停止响铃，之后不再补发。
 - **v32 / v14**：提醒改用「闹钟型」精确闹钟（`setAlarmClock`），清理后台、息屏、省电模式下仍能触发；设置页新增「打开后台运行设置」，直达自启动与省电策略页；提醒时间已过但还没开课时立即补发一次；接收器按实际剩余分钟数显示文案。
 - **v31 / v13**：未导入教务课表时禁止进入编辑模式；同步/登录导入后自动裁剪与教务课程重叠的自定义课程并提示。
 - **v30 / v12**：提醒横幅恢复弹出（自定义 RemoteViews 会被 HyperOS 归入「更多通知」，改回系统默认视图 + 「停止」按钮）；默认响铃时长改为 6 秒；设置页新增「通知与提醒权限」引导卡片。

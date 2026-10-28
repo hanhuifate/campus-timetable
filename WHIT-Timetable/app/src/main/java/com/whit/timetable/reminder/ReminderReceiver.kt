@@ -30,7 +30,10 @@ class ReminderReceiver : BroadcastReceiver() {
                 if (room.isNotEmpty()) append(" · $room")
                 append(if (minutes > 0) "，${minutes} 分钟后上课" else "，即将上课")
             }
-            ReminderNotifier.notify(context, "快要上课：$name", detail, prefs.remindTone, startAt)
+            if (ReminderNotifier.notify(context, "快要上课：$name", detail, prefs.remindTone, startAt)) {
+                // 记下已提醒过，避免调度补发逻辑把这条反复重弹
+                prefs.markNotified("$startAt:$name")
+            }
         }
 
         ReminderScheduler.schedule(context)
