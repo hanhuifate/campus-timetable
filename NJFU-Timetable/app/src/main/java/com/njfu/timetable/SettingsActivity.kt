@@ -22,6 +22,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.njfu.timetable.data.AppPrefs
+import com.njfu.timetable.data.IcsExporter
 import com.njfu.timetable.data.SectionTimes
 import com.njfu.timetable.data.TimetableStore
 import com.njfu.timetable.reminder.ReminderNotifier
@@ -368,6 +369,26 @@ class SettingsActivity : Activity() {
         bgHint.setPadding(0, dp(8f), 0, 0)
         permCard.addView(bgHint)
         content.addView(permCard)
+
+        // iPhone / 其他设备：导出 ics 交给系统日历提醒
+        val exportCard = card()
+        exportCard.addView(sectionTitle("导出到系统日历（iPhone 可用）"))
+        val exportHint = Ui.text(
+            this,
+            "生成 .ics 文件，在 iPhone 上用邮件、微信或「文件」打开后导入「日历」，之后由系统日历按周提醒，不需要 App 常驻后台。课表变动后重新导出并删掉旧的日历事件即可。",
+            10.5f,
+            Ui.TEXT_SECONDARY
+        )
+        exportHint.setPadding(0, 0, 0, 0)
+        exportCard.addView(exportHint)
+        val export = ghostButton("导出课表 .ics")
+        export.setOnClickListener {
+            if (!IcsExporter.share(this)) {
+                status.text = "还没有课表，先同步或添加课程后再导出"
+            }
+        }
+        exportCard.addView(export)
+        content.addView(exportCard)
 
         // 操作按钮
         val sync = primaryButton("保存并登录同步")

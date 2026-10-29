@@ -62,5 +62,11 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <provider
+            android:name=".data.IcsProvider"
+            android:authorities="${applicationId}.ics"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
