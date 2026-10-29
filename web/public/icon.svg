@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="南林课表">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4c6ef5"/>
+      <stop offset="1" stop-color="#7a5af8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <g fill="#ffffff">
+    <rect x="96" y="152" width="320" height="248" rx="34" opacity=".92"/>
+    <rect x="96" y="152" width="320" height="62" rx="34" fill="#dfe6ff"/>
+  </g>
+  <text x="256" y="330" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="118"
+        font-weight="700" fill="#4c6ef5" text-anchor="middle" dominant-baseline="middle">南</text>
+  <g fill="#4c6ef5">
+    <circle cx="150" cy="183" r="10"/>
+    <circle cx="362" cy="183" r="10"/>
+  </g>
+</svg>

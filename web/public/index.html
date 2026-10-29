@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>南林课表</title>
+<meta name="theme-color" content="#4c6ef5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="南林课表">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">南</span>
+    <div class="brand-text">
+      <h1>南林课表</h1>
+      <p id="subtitle">还没有课表，点右侧同步</p>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="btnSync" class="btn-soft" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+      同步
+    </button>
+    <button id="btnSettings" class="btn-icon" type="button" aria-label="设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7zM19.4 13a7.6 7.6 0 0 0 .05-1 7.6 7.6 0 0 0-.05-1l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1l-.4-2.7h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L4.6 11a7.6 7.6 0 0 0-.05 1 7.6 7.6 0 0 0 .05 1l-2.1 1.6 2 3.4 2.5-1a7.4 7.4 0 0 0 1.7 1l.4 2.7h4l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.4z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="weeknav" aria-label="周次切换">
+    <button id="btnPrev" class="nav-btn" type="button" aria-label="上一周">‹</button>
+    <div class="weekinfo">
+      <strong id="weekTitle">第 1 周</strong>
+      <small id="weekRange"></small>
+    </div>
+    <button id="btnNext" class="nav-btn" type="button" aria-label="下一周">›</button>
+    <button id="btnToday" class="btn-ghost" type="button">本周</button>
+  </section>
+
+  <section id="todayCard" class="today" aria-live="polite"></section>
+
+  <section class="gridwrap">
+    <div id="grid" class="grid" role="table" aria-label="课程表"></div>
+    <p id="emptyHint" class="empty-hint" hidden>还没有课表。点右上角「同步」，用学号密码登录教务即可。</p>
+  </section>
+
+  <p class="footnote">课表数据来自教务系统，仅保存在本机浏览器。点课程可看详情。</p>
+</main>
+
+<!-- 课程详情 -->
+<div id="detailMask" class="mask" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <div class="sheet-head">
+      <div>
+        <h2 id="detailTitle">课程</h2>
+        <p id="detailSub" class="muted"></p>
+      </div>
+      <button class="btn-icon sheet-close" type="button" data-close>✕</button>
+    </div>
+    <dl class="detail-list">
+      <div><dt>时间</dt><dd id="detailTime"></dd></div>
+      <div><dt>地点</dt><dd id="detailRoom"></dd></div>
+      <div><dt>教师</dt><dd id="detailTeacher"></dd></div>
+      <div><dt>周次</dt><dd id="detailWeeks"></dd></div>
+    </dl>
+    <button class="btn-primary" type="button" data-close>知道了</button>
+  </div>
+</div>
+
+<!-- 登录 -->
+<div id="loginMask" class="mask" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+    <div class="sheet-head">
+      <div>
+        <h2 id="loginTitle">同步课表</h2>
+        <p class="muted">账号密码只发给本机运行的 Node 服务，用来登录教务。</p>
+      </div>
+      <button class="btn-icon sheet-close" type="button" data-close-login>✕</button>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" type="button" data-tab="account">账号登录</button>
+      <button class="tab" type="button" data-tab="cookie">粘贴 Cookie</button>
+    </div>
+
+    <form id="accountForm" class="pane">
+      <label class="field">
+        <span>学号</span>
+        <input id="inUser" name="username" autocomplete="username" inputmode="numeric" placeholder="例如 2024xxxxxx" required>
+      </label>
+      <label class="field">
+        <span>密码</span>
+        <input id="inPass" name="password" type="password" autocomplete="current-password" placeholder="校园统一身份认证密码" required>
+      </label>
+      <p id="loginError" class="error" hidden></p>
+      <button class="btn-primary" type="submit">登录并同步</button>
+    </form>
+
+    <form id="cookieForm" class="pane" hidden>
+      <label class="field">
+        <span>Cookie</span>
+        <textarea id="inCookie" rows="4" placeholder="在浏览器登录 jwxt.njfu.edu.cn 后，从开发者工具复制请求头里的 Cookie"></textarea>
+      </label>
+      <label class="field">
+        <span>学号（可选，用于接口参数）</span>
+        <input id="inCookieUser" inputmode="numeric" placeholder="2024xxxxxx">
+      </label>
+      <p id="cookieError" class="error" hidden></p>
+      <button class="btn-primary" type="submit">用 Cookie 同步</button>
+    </form>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div id="settingsMask" class="mask" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="sheet-head">
+      <div>
+        <h2 id="settingsTitle">设置</h2>
+        <p class="muted">只影响显示，不改课表内容</p>
+      </div>
+      <button class="btn-icon sheet-close" type="button" data-close-settings>✕</button>
+    </div>
+
+    <div class="field-row">
+      <label class="field">
+        <span>校区作息</span>
+        <select id="selCampus">
+          <option value="白马">白马</option>
+          <option value="新庄">新庄</option>
+          <option value="淮安">淮安</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>学期第一周周一</span>
+        <input id="inTermStart" type="date">
+      </label>
+    </div>
+
+    <div class="field-row">
+      <label class="field">
+        <span>提前提醒（分钟）</span>
+        <input id="inLead" type="number" min="0" max="120" step="5" inputmode="numeric">
+      </label>
+      <label class="field check">
+        <input id="chkWeekend" type="checkbox">
+        <span>显示周末</span>
+      </label>
+    </div>
+
+    <div class="sheet-actions">
+      <button id="btnExport" class="btn-soft" type="button">导出 .ics（iPhone 日历）</button>
+      <button id="btnLogout" class="btn-danger" type="button">退出登录</button>
+    </div>
+    <p class="muted small" id="cacheNote"></p>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

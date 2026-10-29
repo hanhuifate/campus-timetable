@@ -1,0 +1,14 @@
+{
+  "name": "campus-timetable-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "南林课表网页版：本地小后端负责 CAS 登录与教务抓取，前端为静态页面",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
