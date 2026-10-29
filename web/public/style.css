@@ -35,6 +35,9 @@
 
 * { box-sizing: border-box; }
 
+/* hidden 属性要压过下面的 display: flex/grid，否则弹层关不掉 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
