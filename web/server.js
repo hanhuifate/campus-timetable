@@ -137,20 +137,31 @@ function parseHidden(html) {
   return out;
 }
 
-function randomString(n) {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+/** 学校 login.js 用的随机字符集（_rds）。 */
+const RANDOM_CHARS = 'ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678';
+/** 服务端能接受的固定 IV（浏览器脚本里是随机 16 字符，但服务端并不校验 IV）。 */
+const AES_IV = 'HDbk7NdBpFPpFrZR';
+
+function randomChars(n) {
   let s = '';
-  for (let i = 0; i < n; i++) s += chars[crypto.randomInt(chars.length)];
+  for (let i = 0; i < n; i++) s += RANDOM_CHARS[crypto.randomInt(RANDOM_CHARS.length)];
   return s;
 }
 
-/** 与学校登录页一致的密码加密：AES-128-CBC，密钥由 PBKDF2(salt, iv) 派生。 */
+/**
+ * 提交给学校 CAS 的密码密文：
+ *   key   = 页面里的 pwdDefaultEncryptSalt（直接当 AES-128 密钥）
+ *   iv    = 固定 16 字节（服务端接受任意 16 字节，随机 IV 会导致校验失败）
+ *   明文  = 随机 64 字符前缀 + 原始密码
+ *   结果  = AES-128-CBC / PKCS7 的 base64 密文（不带 IV 前缀）
+ * 与学校 encrypt.js 的明文结构一致，差异只在 IV 取值。
+ */
 function encryptPassword(password, salt) {
-  const iv = randomString(16);
-  const key = crypto.pbkdf2Sync(salt, iv, 1000, 16, 'sha1');
-  const cipher = crypto.createCipheriv('aes-128-cbc', key, Buffer.from(iv, 'utf8'));
-  const enc = cipher.update(password, 'utf8', 'base64') + cipher.final('base64');
-  return iv + enc;
+  const key = Buffer.from(String(salt).trim(), 'utf8');
+  if (key.length !== 16) throw new Error('盐长度异常');
+  const prefix = randomChars(64);
+  const cipher = crypto.createCipheriv('aes-128-cbc', key, Buffer.from(AES_IV, 'utf8'));
+  return cipher.update(prefix + password, 'utf8', 'base64') + cipher.final('base64');
 }
 
 function pageHint(html) {
@@ -176,6 +187,28 @@ function pageHint(html) {
   return '';
 }
 
+/** 提交前学校页面会先问 needCaptcha.html；返回 true 表示这个账号此刻必须图形验证码。 */
+async function needsCaptcha(session, username, loginUrl) {
+  if (!username) return false;
+  const base = CAS.replace(/\/login$/, '');
+  const url =
+    `${base}/needCaptcha.html?username=${encodeURIComponent(username)}` +
+    `&pwdEncrypt2=pwdEncryptSalt&_=${Date.now()}`;
+  try {
+    const res = await request(session, url, {
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        Referer: loginUrl,
+        Accept: '*/*'
+      }
+    });
+    const text = (await res.text()).trim();
+    return text.startsWith('true');
+  } catch {
+    return false;
+  }
+}
+
 async function casLogin(username, password) {
   const session = { jar: new Map() };
   const loginUrl = `${CAS}?service=${encodeURIComponent(SERVICE)}`;
@@ -187,11 +220,27 @@ async function casLogin(username, password) {
     throw new Error('没能拿到登录页参数（lt / execution），学校登录页可能改版了');
   }
 
+  if (await needsCaptcha(session, username, loginUrl)) {
+    const err = new Error(
+      '学校要求这个账号输入图形验证码（通常是之前密码试错几次后触发的）。' +
+        '请先在浏览器里登录一次教务把验证码过掉，再回来重试；或直接用「粘贴 Cookie」同步。'
+    );
+    err.code = 'NEED_CAPTCHA';
+    throw err;
+  }
+
+  let encoded = password;
+  if (hidden.pwdDefaultEncryptSalt) {
+    try {
+      encoded = encryptPassword(password, hidden.pwdDefaultEncryptSalt);
+    } catch {
+      encoded = password;
+    }
+  }
+
   const form = new URLSearchParams({
     username,
-    password: hidden.pwdDefaultEncryptSalt
-      ? encryptPassword(password, hidden.pwdDefaultEncryptSalt)
-      : password,
+    password: encoded,
     lt: hidden.lt,
     // 隐藏字段里给的是 dynamicLogin，账号密码登录必须显式改成这个值
     dllt: 'userNamePasswordLogin',
@@ -497,10 +546,11 @@ const server = http.createServer(async (req, res) => {
 
     serveStatic(req, res);
   } catch (err) {
-    const needLogin = err && err.code === 'NEED_LOGIN';
-    json(res, needLogin ? 401 : 500, {
+    const code = (err && err.code) || 'ERROR';
+    const status = code === 'NEED_LOGIN' ? 401 : code === 'NEED_CAPTCHA' ? 400 : 500;
+    json(res, status, {
       error: (err && err.message) || '服务出错',
-      code: needLogin ? 'NEED_LOGIN' : 'ERROR'
+      code
     });
   }
 });

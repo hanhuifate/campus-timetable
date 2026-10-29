@@ -424,9 +424,16 @@ async function checkSession() {
 
 /* --------------------------------------------------------------- 登录 */
 
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
+  $('#accountForm').hidden = name !== 'account';
+  $('#cookieForm').hidden = name !== 'cookie';
+}
+
 function openLogin() {
   $('#loginError').hidden = true;
   $('#cookieError').hidden = true;
+  switchTab('account');
   if (meta.user) $('#inUser').value = meta.user;
   openMask('#loginMask');
   setTimeout(() => $('#inUser').focus(), 250);
@@ -457,6 +464,10 @@ async function submitLogin(event) {
   } catch (err) {
     error.textContent = err.message;
     error.hidden = false;
+    if (err.code === 'NEED_CAPTCHA') {
+      switchTab('cookie');
+      toast('自动登录被验证码拦住，已切到 Cookie 方式');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = '登录并同步';
@@ -681,12 +692,7 @@ function bind() {
   $('#cookieForm').addEventListener('submit', submitCookie);
 
   document.querySelectorAll('.tab').forEach((tab) => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t === tab));
-      const name = tab.dataset.tab;
-      $('#accountForm').hidden = name !== 'account';
-      $('#cookieForm').hidden = name !== 'cookie';
-    });
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
   });
 
   document.addEventListener('click', (event) => {

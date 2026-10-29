@@ -105,9 +105,14 @@
     </form>
 
     <form id="cookieForm" class="pane" hidden>
+      <p class="hint">
+        先点下面的按钮在浏览器里登录教务系统（该输验证码就输），登录成功后按 F12 打开开发者工具 →
+        Network → 任意一个请求 → 复制请求头里的 <code>Cookie</code>，粘贴到下面。
+      </p>
+      <a class="btn-ghost open-jwxt" href="https://jwxt.njfu.edu.cn/" target="_blank" rel="noopener">打开教务系统登录页</a>
       <label class="field">
         <span>Cookie</span>
-        <textarea id="inCookie" rows="4" placeholder="在浏览器登录 jwxt.njfu.edu.cn 后，从开发者工具复制请求头里的 Cookie"></textarea>
+        <textarea id="inCookie" rows="4" placeholder="复制形如 JSESSIONID=…; route=… 的内容"></textarea>
       </label>
       <label class="field">
         <span>学号（可选，用于接口参数）</span>
