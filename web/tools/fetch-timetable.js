@@ -12,8 +12,21 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const dns = require('node:dns');
-// 云主机（GitHub Actions 等）通常没有 IPv6 出口，优先用 IPv4 免得连超时
-dns.setDefaultResultOrder('ipv4first');
+
+/* 云主机（GitHub Actions 等）没有 IPv6 出口，而学校域名在海外 DNS 里可能返回 AAAA，
+   连接会一直卡到超时。这里把本进程的 DNS 查询钉死成 IPv4。 */
+const lookupV4 = dns.lookup.bind(dns);
+const promiseLookupV4 = dns.promises.lookup.bind(dns.promises);
+const v4Options = (options) => {
+  if (typeof options === 'number') return Object.assign({}, { family: 4 });
+  return Object.assign({}, options || {}, { family: 4 });
+};
+dns.lookup = (host, options, callback) => {
+  if (typeof options === 'function') return lookupV4(host, { family: 4 }, options);
+  return lookupV4(host, v4Options(options), callback);
+};
+dns.promises.lookup = (host, options) => promiseLookupV4(host, v4Options(options));
+
 const { casLogin, syncTimetable } = require('../server.js');
 
 const USER = process.env.CT_USERNAME || process.argv[2];
