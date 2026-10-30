@@ -31,6 +31,17 @@ const { casLogin, syncTimetable } = require('../server.js');
 
 const USER = process.env.CT_USERNAME || process.argv[2];
 const PASS = process.env.CT_PASSWORD || process.argv[3];
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchOnce() {
+  console.log(`登录 ${USER} …`);
+  const fresh = await casLogin(USER, PASS);
+  const session = { jar: fresh.jar, user: USER, updatedAt: Date.now() };
+
+  console.log('抓取课表 …');
+  const result = await syncTimetable(session, USER, process.env.CT_TERM_START || '');
+  return result.courses || [];
+}
 
 (async () => {
   if (!USER || !PASS) {
@@ -38,14 +49,22 @@ const PASS = process.env.CT_PASSWORD || process.argv[3];
     process.exit(1);
   }
 
-  console.log(`登录 ${USER} …`);
-  const fresh = await casLogin(USER, PASS);
-  const session = { jar: fresh.jar, user: USER, updatedAt: Date.now() };
-
-  console.log('抓取课表 …');
-  const result = await syncTimetable(session, USER, process.env.CT_TERM_START || '');
-  const courses = result.courses || [];
-  if (!courses.length) throw new Error('没抓到课程，可能是学期参数不对，或本学期确实没有课');
+  // 海外运行器访问学校站点常被重置，整条链路失败就整体重来
+  let courses = [];
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      courses = await fetchOnce();
+      if (courses.length) break;
+      lastErr = new Error('没抓到课程，可能是学期参数不对，或本学期确实没有课');
+    } catch (err) {
+      lastErr = err;
+      const cause = err && err.cause ? ` (${err.cause.code || err.cause.message})` : '';
+      console.error(`第 ${attempt} 次失败：`, ((err && err.message) || err) + cause);
+      if (attempt < 3) await sleep(5000);
+    }
+  }
+  if (!courses.length) throw lastErr || new Error('没抓到课程');
 
   const dir = path.join(__dirname, '..', 'public', 'data');
   fs.mkdirSync(dir, { recursive: true });
