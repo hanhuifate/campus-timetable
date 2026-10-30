@@ -19,6 +19,7 @@ jobs:
       CT_USERNAME: ${{ secrets.CT_USERNAME }}
       CT_PASSWORD: ${{ secrets.CT_PASSWORD }}
       CT_DEBUG: '1'
+      NODE_OPTIONS: '--dns-result-order=ipv4first'
     steps:
       - uses: actions/checkout@v4
 
