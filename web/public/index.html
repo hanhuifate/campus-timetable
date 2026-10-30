@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="南林课表">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -24,6 +24,9 @@
     </div>
   </div>
   <div class="actions">
+    <button id="btnAdd" class="btn-icon" type="button" aria-label="新增自定义课程">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v6h6v2h-6v6h-2v-6h-6v-2h6z"/></svg>
+    </button>
     <button id="btnSync" class="btn-soft" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
       同步
@@ -71,6 +74,10 @@
       <div><dt>教师</dt><dd id="detailTeacher"></dd></div>
       <div><dt>周次</dt><dd id="detailWeeks"></dd></div>
     </dl>
+    <div class="sheet-actions" id="detailActions" hidden>
+      <button id="btnEditCustom" class="btn-soft" type="button">编辑</button>
+      <button id="btnDelCustom" class="btn-danger" type="button">删除</button>
+    </div>
     <button class="btn-primary" type="button" data-close>知道了</button>
   </div>
 </div>
@@ -166,6 +173,59 @@
       <button id="btnLogout" class="btn-danger" type="button">退出登录</button>
     </div>
     <p class="muted small" id="cacheNote"></p>
+  </div>
+</div>
+
+<!-- 自定义课程 -->
+<div id="editMask" class="mask" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <div class="sheet-head">
+      <div>
+        <h2 id="editTitle">新增课程</h2>
+        <p class="muted">自定义课程只存本机，同步教务时不会被覆盖</p>
+      </div>
+      <button class="btn-icon sheet-close" type="button" data-close-edit>✕</button>
+    </div>
+    <form id="editForm">
+      <label class="field">
+        <span>课程名</span>
+        <input id="editName" placeholder="如 高等数学A(1)" required>
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>教师（选填）</span>
+          <input id="editTeacher" placeholder="选填">
+        </label>
+        <label class="field">
+          <span>地点（选填）</span>
+          <input id="editRoom" placeholder="如 6号楼 6202">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>星期</span>
+          <select id="editDay">
+            <option value="1">周一</option>
+            <option value="2">周二</option>
+            <option value="3">周三</option>
+            <option value="4">周四</option>
+            <option value="5">周五</option>
+            <option value="6">周六</option>
+            <option value="7">周日</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>节次（起-止）</span>
+          <input id="editSection" inputmode="numeric" placeholder="如 5-6">
+        </label>
+      </div>
+      <label class="field">
+        <span>周次（如 1-16,18）</span>
+        <input id="editWeeks" inputmode="numeric" placeholder="如 1-16">
+      </label>
+      <p id="editError" class="error" hidden></p>
+      <button class="btn-primary" type="submit">保存</button>
+    </form>
   </div>
 </div>
 

@@ -361,6 +361,8 @@ main {
   padding: 6px 7px;
   overflow: hidden;
   text-align: left;
+  display: flex;
+  flex-direction: column;
   border-left: 3px solid var(--c);
   background: color-mix(in srgb, var(--c) 14%, var(--card));
   color: var(--text);
@@ -377,22 +379,30 @@ main {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  flex: 0 1 auto;
 }
 
+/* 教室固定贴底显示，课程名放不下就截断，保证格子里总能看见教室 */
 .course .c-meta {
-  margin-top: 3px;
-  font-size: 11px;
+  margin-top: auto;
+  padding-top: 3px;
+  font-size: 10.5px;
+  line-height: 1.3;
   color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 0 0 auto;
 }
 
 .course.tall .c-name { -webkit-line-clamp: 3; }
 
 .course.compact { padding: 3px 6px; }
 .course.compact .c-name { font-size: 11.5px; -webkit-line-clamp: 1; }
-.course.compact .c-meta { display: none; }
+.course.compact .c-meta { margin-top: 1px; padding-top: 0; font-size: 9.5px; }
+
+/* 自定义课程用虚线左边，和教务导入的区分开 */
+.course.custom { border-left-style: dashed; }
 
 .footnote {
   margin: 14px 4px 0;

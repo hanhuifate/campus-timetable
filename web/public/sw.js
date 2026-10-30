@@ -1,12 +1,13 @@
 /* 只缓存页面外壳，课表数据走接口，避免看到过期课表。 */
-const VERSION = 'v2';
+const VERSION = 'v7';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/manifest.webmanifest',
-  '/icon.svg'
+  '/icon.svg',
+  '/apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {

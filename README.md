@@ -42,6 +42,16 @@ node server.js        # 打开 http://127.0.0.1:8787
 - **手机访问**：电脑上以 `HOST=0.0.0.0 node server.js` 启动（PowerShell 用 `$env:HOST="0.0.0.0"; node server.js`），手机与电脑连同一 Wi-Fi，访问 `http://电脑IP:8787`。
 - **周次对不上**：学期起始日默认按「9 月 1 日后的第一个周一」推算，在设置里改「学期第一周周一」即可。
 
+#### 部署到公网（iPhone 不装 App，Safari 直接用）
+
+iPhone 上只能用 Safari 打开网页。而 CAS 登录和教务接口都没有 CORS 头，浏览器 JS 不能跨域直接调，登录后的 Cookie 也只能由服务端持有——所以「纯网页能用」的前提是：把这个 Node 服务托管到一个公网 HTTPS 地址。`web/` 本身仍然是零依赖、可直接部署的。
+
+1. **Render（免费，已备好蓝图）**：仓库根目录有 `render.yaml`，登录 render.com → New → Blueprint → 选本仓库，会自动在 `web/` 下建一个免费 Web Service（Node 20、新加坡区）。部署完得到一个 `https://xxx.onrender.com` 地址。
+2. **手动建也可以**：New → Web Service → 连接本仓库 → Root Directory 填 `web` → Build Command 留空 → Start Command 填 `node server.js`。
+3. 手机 Safari 打开该地址 → 右上角「同步」登录 → 分享菜单里选「添加到主屏幕」，图标与全屏生效（已补 `apple-touch-icon.png`）。导出 `.ics` 会走 iOS 系统分享面板，可直接存进「文件」或导入日历。
+
+免费实例的代价：十几分钟没人访问就休眠，冷启动约半分钟；进程重启后服务端会话失效，手机上重新输一次学号密码即可（课表与自定义课程存在手机本地，不受影响）。若学校教务对境外 IP 有拦截，可把 `render.yaml` 里的 `region` 换成 `singapore` 之外的其他区，或改用 Railway / 自己的 VPS。
+
 ### 在 iPhone 上使用
 
 这个工程是 Android 原生实现，无法直接装到 iOS，但课表可以这样过去用：

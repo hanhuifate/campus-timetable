@@ -7,20 +7,25 @@
  *   3. 托管 public/ 下的静态页面。
  *
  * 依赖只有 Node 18+ 自带模块（fetch / crypto / http），不需要 npm install。
- * 启动：node server.js       默认 http://127.0.0.1:8787
+ * 启动：node server.js       本机 http://127.0.0.1:8787，同网段手机用 http://<本机IP>:8787
+ * 云托管：监听 $PORT（Render/Railway 自动注入），会话 Cookie 自动加 Secure。
  */
 'use strict';
 
 const http = require('node:http');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
 const PORT = Number(process.env.PORT || 8787);
-const HOST = process.env.HOST || '127.0.0.1';
-const BASE = 'https://jwxt.njfu.edu.cn';
-const CAS = 'https://uia.njfu.edu.cn/authserver/login';
-const SERVICE = 'http://jwxt.njfu.edu.cn/';
+const HOST = process.env.HOST || '0.0.0.0';
+const BASE = process.env.CT_BASE || 'https://jwxt.njfu.edu.cn';
+const CAS = process.env.CT_CAS || 'https://uia.njfu.edu.cn/authserver/login';
+const SERVICE = process.env.CT_SERVICE || 'http://jwxt.njfu.edu.cn/';
+const DEBUG = !!process.env.CT_DEBUG;
+const HOSTED = !!(process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.CT_HOSTED);
+const JWXT_HOST = new URL(BASE).hostname;
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -71,24 +76,63 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-function cookieHeader(session) {
-  return [...session.jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+/**
+ * Cookie 罐按「域|名字」存。
+ * 统一认证（uia）和教务（jwxt）都会下发同名的 JSESSIONID，
+ * 只按名字存会被后写的覆盖，导致认证过了但教务会话认不出来。
+ * jar: Map<"host|name", value>
+ */
+function cookieList(res) {
+  if (typeof res.headers.getSetCookie === 'function') return res.headers.getSetCookie();
+  const raw = res.headers.get('set-cookie');
+  return raw ? [raw] : [];
 }
 
-function absorb(session, res) {
-  const list = typeof res.headers.getSetCookie === 'function'
-    ? res.headers.getSetCookie()
-    : [];
-  for (const raw of list) {
+function absorb(session, res, url) {
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch { /* 忽略 */ }
+  for (const raw of cookieList(res)) {
     const first = raw.split(';')[0];
     const idx = first.indexOf('=');
     if (idx <= 0) continue;
     const name = first.slice(0, idx).trim();
     const value = first.slice(idx + 1).trim();
+    const domainAttr = /\bdomain=([^;]+)/i.exec(raw);
+    const domain = domainAttr
+      ? domainAttr[1].trim().toLowerCase().replace(/^\./, '')
+      : host;
+    const key = `${domain}|${name}`;
     const dead = value === 'deleted' || /Max-Age=0/i.test(raw) || raw.includes('1970');
-    if (dead) session.jar.delete(name);
-    else session.jar.set(name, value);
+    if (dead) session.jar.delete(key);
+    else session.jar.set(key, value);
   }
+}
+
+function cookieHeader(session, url) {
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch { /* 忽略 */ }
+  const parts = [];
+  for (const [key, value] of session.jar) {
+    const sep = key.indexOf('|');
+    if (sep <= 0) continue;
+    const domain = key.slice(0, sep);
+    if (domain === host || host.endsWith(`.${domain}`)) {
+      parts.push(`${key.slice(sep + 1)}=${value}`);
+    }
+  }
+  return parts.join('; ');
+}
+
+/** 教务域下有会话 Cookie 才算真的登进来了（jsxsd 用 bzb_jsxsd，jwglxt 用 JSESSIONID）。 */
+function hasJwxtSession(session) {
+  for (const key of session.jar.keys()) {
+    const sep = key.indexOf('|');
+    const name = sep > 0 ? key.slice(sep + 1) : '';
+    if (sep > 0 && key.slice(0, sep) === JWXT_HOST && /^(?:JSESSIONID|bzb_jsxsd)$/i.test(name)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function request(session, url, opts = {}) {
@@ -96,7 +140,7 @@ async function request(session, url, opts = {}) {
     'User-Agent': UA,
     'Accept-Language': 'zh-CN,zh;q=0.9'
   }, opts.headers || {});
-  const ck = cookieHeader(session);
+  const ck = cookieHeader(session, url);
   if (ck) headers.Cookie = ck;
   const res = await fetch(url, {
     method: opts.method || 'GET',
@@ -105,7 +149,15 @@ async function request(session, url, opts = {}) {
     redirect: 'manual',
     signal: AbortSignal.timeout(opts.timeout || 15000)
   });
-  absorb(session, res);
+  absorb(session, res, url);
+  if (DEBUG) {
+    const names = cookieList(res).map((c) => c.split('=')[0]).join(',');
+    console.log(
+      `[req] ${opts.method || 'GET'} ${url} -> ${res.status}` +
+      `${res.headers.get('location') ? ' loc=' + res.headers.get('location') : ''}` +
+      `${names ? ' set-cookie=' + names : ''}`
+    );
+  }
   return res;
 }
 
@@ -209,6 +261,43 @@ async function needsCaptcha(session, username, loginUrl) {
   }
 }
 
+/**
+ * 教务换票。教务的 http 地址会被 301 到 https，直接走 https，
+ * 少一次可能把票据消耗掉的跳转。
+ */
+async function landTicket(session, ticketUrl) {
+  let url = ticketUrl;
+  try {
+    const u = new URL(ticketUrl);
+    // 只把教务自己的 http 地址升成 https，别的地址保持原样
+    if (u.protocol === 'http:' && u.hostname === JWXT_HOST) u.protocol = 'https:';
+    url = u.toString();
+  } catch { /* 保持原样 */ }
+
+  const headers = { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' };
+  let res = await request(session, url, { headers });
+  let hops = 0;
+  while (res.status >= 300 && res.status < 400 && hops < 8) {
+    const loc = res.headers.get('location');
+    if (!loc) break;
+    url = resolveUrl(url, loc);
+    res = await request(session, url, { headers });
+    hops++;
+  }
+  return { status: res.status, url, body: await res.text() };
+}
+
+/** 用登录时拿到的 CASTGC 再换一张新票据（票据只能用一次，重试要换新的）。 */
+async function silentTicket(session) {
+  const casHost = new URL(CAS).hostname;
+  const hasCastgc = [...session.jar.keys()].some((k) => k.startsWith(`${casHost}|CASTGC`));
+  if (!hasCastgc) return '';
+  const res = await request(session, `${CAS}?service=${encodeURIComponent(SERVICE)}`);
+  const text = await res.text();
+  if (DEBUG) console.log(`[ticket] 静默换票 ${res.status} len=${text.length}`);
+  return res.status >= 300 && res.status < 400 ? res.headers.get('location') || '' : '';
+}
+
 async function casLogin(username, password) {
   const session = { jar: new Map() };
   const loginUrl = `${CAS}?service=${encodeURIComponent(SERVICE)}`;
@@ -254,30 +343,43 @@ async function casLogin(username, password) {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       Referer: loginUrl,
-      Origin: 'https://uia.njfu.edu.cn'
+      Origin: new URL(CAS).origin
     },
     body: form.toString()
   });
 
-  // 登录成功后 CAS 会 302 到带 ticket 的服务地址，再落地到 jwxt
-  let url = loginUrl;
-  let hops = 0;
-  while (res.status >= 300 && res.status < 400 && hops < 8) {
-    const loc = res.headers.get('location');
-    if (!loc) break;
-    url = resolveUrl(url, loc);
-    res = await request(session, url);
-    hops++;
-  }
-  if (res.status >= 300 && res.status < 400) {
-    throw new Error('登录重定向次数过多，学校可能加了风控');
+  // 登录成功 CAS 会 302 到带 ticket 的教务地址；没跳转就是没登录成功
+  if (res.status < 300 || res.status >= 400) {
+    const body = await res.text();
+    const err = new Error(pageHint(body) || '登录失败：账号或密码不正确');
+    err.code = 'BAD_CREDENTIALS';
+    throw err;
   }
 
-  const body = await res.text();
-  const hasJwxt = [...session.jar.keys()].some((k) => /JSESSIONID/i.test(k));
-  if (!hasJwxt || /authserver\/login/i.test(url)) {
-    const hint = pageHint(body);
-    throw new Error(hint || '登录失败：账号或密码不正确');
+  const location = res.headers.get('location') || '';
+  await res.text();
+  if (!location) throw new Error('登录后没有返回跳转地址，学校登录流程可能改版了');
+
+  let landed = await landTicket(session, location);
+  // 票据是一次性的，换票失败就用 CASTGC 再换一张新票重试
+  if (!hasJwxtSession(session)) {
+    const again = await silentTicket(session);
+    if (again) landed = await landTicket(session, again);
+  }
+
+  if (DEBUG) {
+    console.log(`[login] 落地 ${landed.status} ${landed.url}，jar=${[...session.jar.keys()].join(',')}`);
+  }
+
+  if (!hasJwxtSession(session)) {
+    const hint = pageHint(landed.body);
+    if (hint) throw new Error(hint);
+    const err = new Error(
+      `教务换票失败（HTTP ${landed.status}）。学校教务暂时没接受自动登录的票据，` +
+        '可以改用「粘贴 Cookie」同步：在浏览器登录教务后，把请求头里的 Cookie 粘过来。'
+    );
+    err.code = 'TICKET_FAILED';
+    throw err;
   }
   return session;
 }
@@ -413,6 +515,231 @@ function hashCode(text) {
   return h;
 }
 
+/* ------------------------------------------ jsxsd（南林实际在用的教务页面） */
+
+const JSXSD_HOME = `${BASE}/jsxsd/framework/xsMainV.jsp`;
+const JSXSD_FRAME = `${BASE}/jsxsd/framework/xsMainV_new.htmlx?t1=1`;
+const JSXSD_KB = `${BASE}/jsxsd/framework/mainV_index_loadkb.htmlx`;
+
+/** 调试时把抓到的页面存到 %TEMP%\ct-html，方便按真实结构核对解析。 */
+function dumpHtml(name, html) {
+  if (!DEBUG) return;
+  try {
+    const dir = path.join(process.env.TEMP || __dirname, 'ct-html');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, html, 'utf8');
+    console.log(`[dump] ${file} (${html.length} 字符)`);
+  } catch (e) {
+    console.log(`[dump] 失败：${e.message}`);
+  }
+}
+
+function stripTags(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * 课表要的两个参数都在框架页里：
+ *   学期 = 脚本里写死的 "&xnxqid="+"2026-2027-1&xswk="（option 的 value 是空的，不能按 value 取）
+ *   节次模式 = 当前选中的 <li name="kbjcmsid" class="layui-this"> 的 data-value
+ */
+function jsxsdParams(html) {
+  const term =
+    (/xnxqid="\s*\+\s*"\s*([^&"']+)/.exec(html) || [])[1] ||
+    (/<option[^>]*>\s*(\d{4}-\d{4}-\d)\s*</.exec(html) || [])[1] ||
+    '';
+  const tags = [...html.matchAll(/<li[^>]*\bname\s*=\s*["']kbjcmsid["'][^>]*>/gi)].map((m) => m[0]);
+  const chosen = tags.find((t) => /layui-this/i.test(t)) || tags[0] || '';
+  const msid = (/data-value\s*=\s*["']([^"']+)["']/i.exec(chosen) || [])[1] || '';
+  return { term: term.trim(), msid };
+}
+
+/**
+ * 教务首页（xsMainV.jsp）只是个人中心，课表在 xsMainV_new 框架里 AJAX 加载：
+ *   /jsxsd/framework/mainV_index_loadkb.htmlx?rq=all&sjmsValue=..&xnxqid=..&xswk=false
+ */
+async function fetchJsxsd(session) {
+  const res = await request(session, JSXSD_FRAME, { headers: { Referer: JSXSD_HOME } });
+  const frame = await res.text();
+  dumpHtml('jsxsd-frame.html', frame);
+  // 没进到课表框架页（被踢回登录页 / 会话失效）
+  if (res.status !== 200 || !/kbjcmsid/i.test(frame)) return null;
+
+  const { term, msid } = jsxsdParams(frame);
+  if (!msid) {
+    if (DEBUG) console.log('[jsxsd] 框架页里没找到节次模式 id');
+    return null;
+  }
+
+  const url =
+    `${JSXSD_KB}?rq=all&sjmsValue=${encodeURIComponent(msid)}` +
+    `&xnxqid=${encodeURIComponent(term)}&xswk=false`;
+  const kbRes = await request(session, url, {
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest',
+      Referer: JSXSD_FRAME,
+      Accept: 'text/html, */*; q=0.01'
+    }
+  });
+  const kb = await kbRes.text();
+  dumpHtml('jsxsd-kb.html', kb);
+  if (DEBUG) console.log(`[jsxsd] 课表接口 ${kbRes.status}，学期=${term} 模式=${msid}，${kb.length} 字符`);
+  return kbRes.status === 200 ? kb : null;
+}
+
+/** 节次：优先 “01~02节”，其次 “第1-2节”，都没有就按表格行号。 */
+function sectionsOf(text, rowIndex) {
+  const twoDigit = (SECTION_RE.exec(text) || [''])[0];
+  const numbers = [...twoDigit.matchAll(/\d{1,2}/g)].map((m) => Number(m[0]));
+  let start = numbers.length ? numbers[0] : 0;
+  let end = numbers.length ? numbers[numbers.length - 1] : 0;
+  if (!numbers.length) {
+    const alt = /第?\s*(\d{1,2})\s*[-~,，]\s*(\d{1,2})\s*节/.exec(text);
+    if (alt) {
+      start = Number(alt[1]);
+      end = Number(alt[2]);
+    }
+  }
+  if (!start) {
+    start = rowIndex;
+    end = rowIndex;
+  }
+  start = Math.min(Math.max(start, 1), 12);
+  end = Math.min(Math.max(end, start), 12);
+  return { start, end };
+}
+
+/**
+ * 一格里的 .item-box（同一格常常叠着不同周次的多门课）。
+ * 真实结构是每门课一个 <span class="box">（悬浮提示，含教师）+ 一个 <div class="item-box">（详情）。
+ */
+function itemBoxes(cellHtml) {
+  return cellHtml.split(/<div[^>]*\bclass\s*=\s*["'][^"']*item-box[^"']*["'][^>]*>/i).slice(1);
+}
+
+/** 一门课从 <span class="box"> 开始（提示层里才有“教师：xxx”）。 */
+function courseUnits(cellHtml) {
+  const units = cellHtml.split(/<span[^>]*\bclass\s*=\s*["'][^"']*\bbox\b[^"']*["'][^>]*>/i).slice(1);
+  return units.length ? units : [cellHtml];
+}
+
+const TCH_DIV_RE = /<div[^>]*\bclass\s*=\s*["'][^"']*tch-name[^"']*["'][^>]*>([\s\S]*?)<\/div>/i;
+
+/** 一个 item-box 里的课：名字在 <p>，学分/节次在 tch-name，地点/周次在紧跟的 div。 */
+function boxCourses(boxHtml) {
+  const meta = stripTags(boxHtml);
+  const body = boxHtml.replace(new RegExp(TCH_DIV_RE.source, 'gi'), ' '); // tch-name 里是“学分/节次”，不是地点
+  const seg = stripTags(body);
+  return boxHtml
+    .split(/<p[^>]*>/i)
+    .slice(1)
+    .map((part) => {
+      const cut = part.search(/<\/p>/i);
+      return { name: stripTags(cut >= 0 ? part.slice(0, cut) : part), seg, meta };
+    })
+    .filter((it) => it.name);
+}
+
+const WEEK_RE = /第([0-9,~\-]+)周/;
+const SECTION_RE = /[0-9]{2}(?:~[0-9]{2})+(?:小)?节/;
+const DAY_RE = /星期([一二三四五六日天])/;
+const WEEK_DAY = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 日: 7, 天: 7 };
+
+/** “第1,3,5-8周” → "1,3,5-8"；出现“单/双周”时再筛一遍。 */
+function weeksFromZcd(zcd, text) {
+  const weeks = new Set();
+  for (const part of String(zcd || '').split(',')) {
+    const m = /(\d{1,2})\s*(?:[-~～]\s*(\d{1,2}))?/.exec(part);
+    if (!m) continue;
+    const a = Number(m[1]);
+    const b = m[2] === undefined ? a : Number(m[2]);
+    if (a >= 1 && a <= 30 && b >= a && b <= 30) for (let w = a; w <= b; w++) weeks.add(w);
+  }
+  if (!weeks.size) return '';
+  let list = [...weeks].sort((x, y) => x - y);
+  const src = text || '';
+  const odd = /单周|[（(]\s*单\s*[）)]/.test(src);
+  const even = /双周|[（(]\s*双\s*[）)]/.test(src);
+  if (odd && !even) list = list.filter((w) => w % 2 === 1);
+  if (even && !odd) list = list.filter((w) => w % 2 === 0);
+  return weeksToText(list);
+}
+
+/** 去掉周次/节次/星期/教师之后，剩下的文字里带“楼室馆场校区号”的那段就是上课地点。 */
+function roomOf(seg) {
+  const rest = seg
+    .replace(new RegExp(WEEK_RE.source, 'g'), ' ')
+    .replace(new RegExp(SECTION_RE.source, 'g'), ' ')
+    .replace(new RegExp(DAY_RE.source, 'g'), ' ');
+  const tokens = rest
+    .split(/\s+/)
+    .filter((t) => t && !/^\d{1,2}$/.test(t) && !/^(?:教师|老师)[:：]/.test(t));
+  return tokens.find((t) => /楼|室|馆|场|中心|校区|号/.test(t)) || tokens[0] || '';
+}
+
+/** 解析 jsxsd 主界面 AJAX 返回的那张课表。 */
+function parseJsxsd(html) {
+  const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/gi)].map((m) => m[0]);
+  const table =
+    tables.find((t) => /item-box/i.test(t)) || tables.find((t) => /星期/.test(stripTags(t)));
+  if (!table) return [];
+
+  const out = [];
+  const seen = new Set();
+  const rows = [...table.matchAll(/<tr[\s\S]*?<\/tr>/gi)].map((m) => m[0]);
+  // 第一行是表头（周/节次 + 星期一…星期日）
+  rows.slice(1).forEach((row, i) => {
+    const rowIndex = i + 1;
+    const cells = [...row.matchAll(/<td[\s\S]*?<\/td>/gi)].map((m) => m[0]);
+    if (cells.length < 2) return;
+    const rowSection = sectionsOf(stripTags(cells[0]), rowIndex);
+
+    cells.slice(1).forEach((cell, idx) => {
+      const text = stripTags(cell);
+      const day = WEEK_DAY[(DAY_RE.exec(text) || [])[1]] || idx + 1;
+      if (!(day >= 1 && day <= 7)) return;
+      const cellTeacher = (/教师[:：]\s*([^\s]+)/.exec(text) || [])[1] || '';
+
+      for (const unit of courseUnits(cell)) {
+        const teacher = (/教师[:：]\s*([^\s]+)/.exec(stripTags(unit)) || [])[1] || cellTeacher;
+        const boxes = itemBoxes(unit);
+        for (const { name, seg, meta } of boxCourses(boxes.length ? boxes[0] : unit)) {
+          const weeks = weeksFromZcd((WEEK_RE.exec(meta) || [])[1] || '', meta);
+          if (!weeks) continue;
+          const { start, end } = SECTION_RE.test(meta) ? sectionsOf(meta, rowIndex) : rowSection;
+          const room = roomOf(seg);
+          const key = `${name}|${teacher}|${room}|${day}|${start}|${end}|${weeks}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            name,
+            teacher,
+            room,
+            day,
+            start,
+            end,
+            weeks,
+            color: Math.abs(hashCode(name)) % 8,
+            id: crypto.createHash('md5').update(key).digest('hex').slice(0, 12),
+            custom: false
+          });
+        }
+      }
+    });
+  });
+
+  out.sort((a, b) => a.day - b.day || a.start - b.start || a.name.localeCompare(b.name, 'zh'));
+  return out;
+}
+
 async function syncTimetable(session, user, termStart) {
   const { xnm, xqm } = termOf(termStart || '2026-08-31');
   const candidates = [
@@ -421,20 +748,44 @@ async function syncTimetable(session, user, termStart) {
     { xnm: String(Number(xnm) - 1), xqm: '12' },
     { xnm: String(Number(xnm) - 1), xqm: '3' }
   ];
+  let expired = false;
   for (const t of candidates) {
     const got = await fetchKb(session, t.xnm, t.xqm, user);
     if (got.needLogin) {
-      const err = new Error('教务会话已失效，请重新登录');
-      err.code = 'NEED_LOGIN';
-      throw err;
+      expired = true;
+      break;
     }
     const courses = got.json ? parseCourses(got.json) : [];
-    if (courses.length) return { courses, term: t };
+    if (courses.length) return { courses, term: t, source: 'jwglxt' };
+  }
+
+  // jwglxt 接口拿不到就退回解析教务首页课表，南林这套实际是 jsxsd
+  const page = await fetchJsxsd(session);
+  if (page) {
+    const courses = parseJsxsd(page);
+    if (courses.length) return { courses, term: { xnm, xqm }, source: 'jsxsd' };
+    if (DEBUG) console.log('[jsxsd] 页面拿到了但没解析出课程，见 %TEMP%\\ct-html');
+  }
+
+  if (expired) {
+    const err = new Error('教务会话已失效，请重新登录');
+    err.code = 'NEED_LOGIN';
+    throw err;
   }
   throw new Error('教务没有返回课表数据（可能本学期参数不对，或账号没有课表）');
 }
 
 /* --------------------------------------------------------------- 服务端 */
+
+/**
+ * 会话 Cookie。部署到 HTTPS 域名（Render/Railway/Nginx）时必须带 Secure，
+ * 本机 http 调试则不能带，否则浏览器会直接丢弃。
+ */
+function sidCookie(req, sid, maxAge) {
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const secure = proto === 'https' || !!req.socket.encrypted;
+  return `${SID_COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? '; Secure' : ''}`;
+}
 
 function json(res, code, data) {
   const body = JSON.stringify(data);
@@ -482,11 +833,12 @@ function serveStatic(req, res) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  if (DEBUG) console.log(`[in] ${req.method} ${url.pathname}${url.search} cookie=${req.headers.cookie ? '有' : '无'}`);
   try {
     if (url.pathname === '/api/me') {
       const s = sessionOf(req);
       return json(res, 200, {
-        loggedIn: !!(s && s.jar.size),
+        loggedIn: !!(s && hasJwxtSession(s)),
         user: s ? s.user : ''
       });
     }
@@ -496,7 +848,7 @@ const server = http.createServer(async (req, res) => {
       if (sid) sessions.delete(sid);
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': `${SID_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+        'Set-Cookie': sidCookie(req, '', 0)
       });
       return res.end('{"ok":true}');
     }
@@ -509,8 +861,10 @@ const server = http.createServer(async (req, res) => {
       const stored = sessions.get(sid);
       stored.jar = fresh.jar;
       stored.user = user || username.trim();
+      // 先下发会话 Cookie：即使后面同步失败，也不用再重新登录，点“同步”重试即可
+      res.setHeader('Set-Cookie', sidCookie(req, sid, 86400));
       const result = await syncTimetable(stored, username.trim(), termStart);
-      res.setHeader('Set-Cookie', `${SID_COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+      stored.updatedAt = Date.now();
       return json(res, 200, { ok: true, user: username.trim(), ...result });
     }
 
@@ -521,13 +875,14 @@ const server = http.createServer(async (req, res) => {
       let sid = cookieSid(req);
       if (!sid || !sessions.has(sid)) {
         sid = newSession();
-        res.setHeader('Set-Cookie', `${SID_COOKIE}=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`);
+        res.setHeader('Set-Cookie', sidCookie(req, sid, 86400));
       }
       const s = sessions.get(sid);
       for (const part of cookie.split(';')) {
         const idx = part.indexOf('=');
         if (idx <= 0) continue;
-        s.jar.set(part.slice(0, idx).trim(), part.slice(idx + 1).trim());
+        // 教务 Cookie 统一挂在 jwxt 域下
+        s.jar.set(`${JWXT_HOST}|${part.slice(0, idx).trim()}`, part.slice(idx + 1).trim());
       }
       s.user = user.trim();
       const result = await syncTimetable(s, user.trim(), termStart);
@@ -536,10 +891,24 @@ const server = http.createServer(async (req, res) => {
 
     if (url.pathname === '/api/timetable' && req.method === 'POST') {
       const s = sessionOf(req);
-      if (!s || !s.jar.size) return json(res, 401, { error: '还没登录', code: 'NEED_LOGIN' });
+      if (!s || !hasJwxtSession(s)) return json(res, 401, { error: '还没登录', code: 'NEED_LOGIN' });
       const { termStart = '' } = await readBody(req);
       const result = await syncTimetable(s, s.user, termStart);
       return json(res, 200, { ok: true, user: s.user, ...result });
+    }
+
+    // 调试用：用最近一个会话抓一次课表页，确认解析结果
+    if (url.pathname === '/api/_debug' && DEBUG) {
+      const s = sessionOf(req) || [...sessions.values()].pop();
+      if (!s) return json(res, 400, { error: '没有会话' });
+      const page = await fetchJsxsd(s);
+      const courses = page ? parseJsxsd(page) : [];
+      return json(res, 200, {
+        ok: !!page,
+        len: page ? page.length : 0,
+        courses: courses.length,
+        sample: courses.slice(0, 3)
+      });
     }
 
     if (url.pathname.startsWith('/api/')) return json(res, 404, { error: '接口不存在' });
@@ -547,7 +916,8 @@ const server = http.createServer(async (req, res) => {
     serveStatic(req, res);
   } catch (err) {
     const code = (err && err.code) || 'ERROR';
-    const status = code === 'NEED_LOGIN' ? 401 : code === 'NEED_CAPTCHA' ? 400 : 500;
+    if (DEBUG) console.log(`[api] 失败 ${url.pathname} ${code} ${(err && err.message) || ''}`);
+    const status = code === 'NEED_LOGIN' ? 401 : code === 'BAD_CREDENTIALS' ? 401 : code === 'NEED_CAPTCHA' ? 400 : 500;
     json(res, status, {
       error: (err && err.message) || '服务出错',
       code
@@ -564,7 +934,40 @@ function cookieSid(req) {
   return '';
 }
 
-server.listen(PORT, HOST, () => {
-  console.log(`课表网页版已启动： http://${HOST}:${PORT}`);
-  console.log('提示：只在本机/局域网使用，Cookie 保存在内存里，重启即失效。');
-});
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    if (HOSTED) {
+      console.log(`课表网页版已启动，端口 ${PORT}（云托管）`);
+      console.log('提示：会话只存内存，平台休眠/重启后手机上重新登录一次即可。');
+      return;
+    }
+    console.log(`课表网页版已启动： http://127.0.0.1:${PORT}`);
+    if (HOST === '0.0.0.0') {
+      for (const list of Object.values(os.networkInterfaces())) {
+        for (const item of list || []) {
+          if (item.family === 'IPv4' && !item.internal) {
+            console.log(`  手机同网段可用： http://${item.address}:${PORT}`);
+          }
+        }
+      }
+      console.log('  注意：同 Wi‑Fi 下的其他设备也能打开，公共网络下用完记得关掉。');
+    }
+    console.log('提示：只在本机/局域网使用，Cookie 保存在内存里，重启即失效。');
+  });
+}
+
+// 给测试脚本用：直接调用内部函数，不用真的起服务
+module.exports = {
+  encryptPassword,
+  jsxsdParams,
+  weeksFromZcd,
+  roomOf,
+  parseJsxsd,
+  fetchJsxsd,
+  casLogin,
+  syncTimetable,
+  hasJwxtSession,
+  sessions,
+  newSession,
+  server
+};

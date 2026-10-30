@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: njfu-timetable
+    runtime: node
+    rootDir: web
+    region: singapore
+    plan: free
+    buildCommand: echo skip-build
+    startCommand: node server.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

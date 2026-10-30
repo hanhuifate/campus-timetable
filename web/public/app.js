@@ -24,7 +24,7 @@ const COLORS = ['#4c6ef5', '#f76707', '#12b886', '#e64980', '#7048e8', '#1098ad'
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const SECTIONS = 12;
 
-const KEY = { courses: 'ct.courses', settings: 'ct.settings', meta: 'ct.meta' };
+const KEY = { courses: 'ct.courses', custom: 'ct.custom', settings: 'ct.settings', meta: 'ct.meta' };
 
 /* --------------------------------------------------------------- 小工具 */
 
@@ -94,6 +94,7 @@ let settings = Object.assign(
   load(KEY.settings, {})
 );
 let meta = Object.assign({ user: '', updatedAt: 0 }, load(KEY.meta, {}));
+let customCourses = load(KEY.custom, []);
 
 let viewWeek = 0;
 let serverLoggedIn = false;
@@ -113,6 +114,123 @@ function saveCourses() {
 
 function saveSettings() {
   save(KEY.settings, settings);
+}
+
+/* ------------------------------------------------------- 自定义课程辅助 */
+
+/** 教务课程 + 自定义课程，渲染和导出都用这一份。 */
+function allCourses() {
+  return courses.concat(customCourses);
+}
+
+function saveCustom() {
+  save(KEY.custom, customCourses);
+}
+
+function newId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `c${Date.now()}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function hashText(text) {
+  let h = 0;
+  for (const ch of String(text)) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return Math.abs(h);
+}
+
+/** 窄格子里直接显示教室：去掉重复的校区前缀。 */
+function shortRoom(room) {
+  return String(room || '')
+    .replace(/白马校区|新庄校区|淮安校区/g, '')
+    .replace(/[-－—]/g, ' ')
+    .replace(/[（(]\s*[)）]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Set -> "1-16,18" */
+function weeksToText(set) {
+  const arr = [...set].filter((n) => n > 0).sort((a, b) => a - b);
+  const out = [];
+  let start = null;
+  let prev = null;
+  for (const n of arr) {
+    if (start === null) {
+      start = n;
+      prev = n;
+    } else if (n === prev + 1) {
+      prev = n;
+    } else {
+      out.push(start === prev ? `${start}` : `${start}-${prev}`);
+      start = n;
+      prev = n;
+    }
+  }
+  if (start !== null) out.push(start === prev ? `${start}` : `${start}-${prev}`);
+  return out.join(',');
+}
+
+function sameWeeks(a, b) {
+  const x = parseWeeks(a);
+  const y = parseWeeks(b);
+  if (x.size !== y.size) return false;
+  for (const n of x) if (!y.has(n)) return false;
+  return true;
+}
+
+/**
+ * 教务课表更新后，让自定义课程避让：同一星期里与之冲突的周次、节次被挖掉，
+ * 其余部分按周次 / 节次拆成多段保留（与安卓端 TimetableStore 的逻辑一致）。
+ */
+function trimCustom(official) {
+  const kept = [];
+  for (const base of customCourses) {
+    let parts = [{ weeks: parseWeeks(base.weeks), start: Number(base.start), end: Number(base.end) }];
+    for (const other of official) {
+      if (Number(other.day) !== Number(base.day)) continue;
+      const otherWeeks = parseWeeks(other.weeks);
+      const os = Number(other.start);
+      const oe = Number(other.end);
+      const next = [];
+      for (const part of parts) {
+        if (part.end < os || part.start > oe) {
+          next.push(part);
+          continue;
+        }
+        const hit = [...part.weeks].filter((w) => otherWeeks.has(w));
+        if (!hit.length) {
+          next.push(part);
+          continue;
+        }
+        const rest = new Set([...part.weeks].filter((w) => !otherWeeks.has(w)));
+        if (rest.size) next.push({ weeks: rest, start: part.start, end: part.end });
+        let runStart = 0;
+        for (let s = part.start; s <= part.end; s++) {
+          const blocked = s >= os && s <= oe;
+          if (!blocked && !runStart) runStart = s;
+          if ((blocked || s === part.end) && runStart) {
+            const runEnd = blocked ? s - 1 : s;
+            if (runEnd >= runStart) next.push({ weeks: new Set(hit), start: runStart, end: runEnd });
+            runStart = 0;
+          }
+        }
+      }
+      parts = next;
+    }
+    const solo = parts.length === 1 && parts[0].start === Number(base.start) &&
+      parts[0].end === Number(base.end) && sameWeeks(weeksToText(parts[0].weeks), base.weeks);
+    for (const part of parts) {
+      if (!part.weeks.size || part.start > part.end) continue;
+      kept.push(Object.assign({}, base, {
+        start: part.start,
+        end: part.end,
+        weeks: weeksToText(part.weeks),
+        id: solo ? base.id : newId()
+      }));
+    }
+  }
+  customCourses = kept;
+  saveCustom();
 }
 
 /* --------------------------------------------------------------- 周计算 */
@@ -170,8 +288,9 @@ function renderSubtitle() {
   const parts = [];
   if (meta.user) parts.push(meta.user);
   parts.push(`第 ${currentWeek()} 周`);
-  if (courses.length) {
-    parts.push(`${courses.length} 节课`);
+  const total = allCourses().length;
+  if (total) {
+    parts.push(customCourses.length ? `${total} 节课 · 含 ${customCourses.length} 门自定义` : `${total} 节课`);
   } else {
     parts.push('还没有课表');
   }
@@ -201,7 +320,7 @@ function renderToday() {
   const todayKey = ymd(today);
   const now = today.getHours() * 60 + today.getMinutes();
 
-  const list = courses
+  const list = allCourses()
     .filter((c) => Number(c.day) === day && inWeek(c, nowWeek, {}))
     .sort((a, b) => a.start - b.start);
 
@@ -296,7 +415,20 @@ function renderGrid() {
     col.style.height = `${SECTIONS * rowH}px`;
     if (isThisWeek && day === todayDay) col.classList.add('today');
 
-    const list = courses
+    // 点空白处按所在节次新建自定义课程；判断位移，避免横向滑动时误触。
+    let down = null;
+    col.addEventListener('pointerdown', (event) => {
+      down = { x: event.clientX, y: event.clientY };
+    });
+    col.addEventListener('click', (event) => {
+      if (event.target.closest('.course')) return;
+      if (down && (Math.abs(event.clientX - down.x) > 8 || Math.abs(event.clientY - down.y) > 8)) return;
+      const rect = col.getBoundingClientRect();
+      const section = Math.max(1, Math.min(SECTIONS, Math.floor((event.clientY - rect.top) / rowH) + 1));
+      openEditor(null, day, section);
+    });
+
+    const list = allCourses()
       .filter((c) => Number(c.day) === day && inWeek(c, viewWeek, weekCache))
       .sort((a, b) => a.start - b.start);
 
@@ -311,11 +443,10 @@ function renderGrid() {
       if (height >= rowH * 2) block.classList.add('tall');
       if (height < 40) block.classList.add('compact');
 
-      const name = el('div', 'c-name', c.name);
-      block.append(name);
-      if (height >= 40) {
-        block.append(el('div', 'c-meta', c.room || ''));
-      }
+      block.append(el('div', 'c-name', c.name));
+      const room = shortRoom(c.room);
+      if (room) block.append(el('div', 'c-meta', room));
+      if (c.custom) block.classList.add('custom');
       block.addEventListener('click', () => showDetail(c));
       col.append(block);
     }
@@ -328,7 +459,7 @@ function render() {
   renderSubtitle();
   renderToday();
   renderGrid();
-  $('#emptyHint').hidden = courses.length > 0;
+  $('#emptyHint').hidden = allCourses().length > 0;
 }
 
 /* --------------------------------------------------------------- 详情 */
@@ -337,12 +468,98 @@ function showDetail(course) {
   detailCourse = course;
   const range = sectionRange(settings.campus, course.start, course.end);
   $('#detailTitle').textContent = course.name;
-  $('#detailSub').textContent = `周${'一二三四五六日'[course.day - 1]} · ${range.label}`;
+  $('#detailSub').textContent =
+    `周${'一二三四五六日'[course.day - 1]} · ${range.label}` + (course.custom ? ' · 自定义' : '');
   $('#detailTime').textContent = `${range.start} - ${range.end}`;
   $('#detailRoom').textContent = course.room || '未写教室';
   $('#detailTeacher').textContent = course.teacher || '未写教师';
   $('#detailWeeks').textContent = course.weeks ? `${course.weeks} 周` : '未写周次';
+  $('#detailActions').hidden = !course.custom;
   $('#detailMask').hidden = false;
+}
+
+/* ----------------------------------------------------------- 自定义课程 */
+
+let editing = null;
+
+function openEditor(course, day, section) {
+  editing = course || null;
+  const isNew = !course;
+  $('#editTitle').textContent = isNew ? '新增课程' : '编辑课程';
+  $('#editError').hidden = true;
+  $('#editName').value = course ? course.name : '';
+  $('#editTeacher').value = course ? course.teacher || '' : '';
+  $('#editRoom').value = course ? course.room || '' : '';
+  $('#editDay').value = String(course ? Number(course.day) : day || 1);
+  $('#editSection').value = course
+    ? `${course.start}-${course.end}`
+    : `${section || 1}-${section || 1}`;
+  $('#editWeeks').value = course ? course.weeks || String(viewWeek) : String(viewWeek);
+  closeMask('#detailMask');
+  closeMask('#editMask');
+  openMask('#editMask');
+  setTimeout(() => $('#editName').focus(), 200);
+}
+
+function submitEditor(event) {
+  event.preventDefault();
+  const wasEditing = !!editing;
+  const error = $('#editError');
+  const fail = (msg) => {
+    error.textContent = msg;
+    error.hidden = false;
+  };
+  const name = $('#editName').value.trim();
+  if (!name) return fail('请填写课程名');
+
+  const text = $('#editSection').value;
+  const range = /(\d{1,2})\s*[-~～]\s*(\d{1,2})/.exec(text);
+  const single = /^\s*(\d{1,2})\s*$/.exec(text);
+  let start = range ? Number(range[1]) : single ? Number(single[1]) : NaN;
+  if (!Number.isFinite(start)) return fail('节次格式应为 5-6');
+  start = Math.max(1, Math.min(12, start));
+  let end = range ? Number(range[2]) : start;
+  end = Math.max(start, Math.min(12, Number.isFinite(end) ? end : start));
+
+  const weeks = parseWeeks($('#editWeeks').value);
+  if (!weeks.size) return fail('周次格式应为 1-16');
+
+  const course = {
+    id: editing && editing.id ? editing.id : newId(),
+    name,
+    teacher: $('#editTeacher').value.trim(),
+    room: $('#editRoom').value.trim(),
+    day: Number($('#editDay').value),
+    start,
+    end,
+    weeks: weeksToText(weeks),
+    color: editing ? Number(editing.color || 0) : hashText(name) % COLORS.length,
+    custom: true
+  };
+
+  if (editing) {
+    const index = customCourses.findIndex((c) => c.id === editing.id);
+    if (index >= 0) customCourses[index] = course;
+    else customCourses.push(course);
+  } else {
+    customCourses.push(course);
+  }
+  saveCustom();
+  editing = null;
+  closeMask('#editMask');
+  render();
+  toast(wasEditing ? '已保存' : '已添加自定义课程');
+}
+
+function deleteCustom(course) {
+  if (!course) return;
+  customCourses = customCourses.filter((c) => c.id !== course.id);
+  saveCustom();
+  editing = null;
+  closeMask('#editMask');
+  closeMask('#detailMask');
+  render();
+  toast('已删除自定义课程');
 }
 
 /* --------------------------------------------------------------- 弹层 */
@@ -388,7 +605,10 @@ async function api(path, body) {
 }
 
 function applySync(data) {
-  if (Array.isArray(data.courses)) courses = data.courses;
+  if (Array.isArray(data.courses)) {
+    courses = data.courses;
+    if (customCourses.length) trimCustom(courses);
+  }
   if (data.user) meta.user = data.user;
   meta.updatedAt = Date.now();
   if (!settings.campus) {
@@ -594,7 +814,12 @@ function icsDateTime(date, timeText) {
 }
 
 function exportIcs() {
-  if (!courses.length) {
+  return downloadIcs();
+}
+
+async function downloadIcs() {
+  const list = allCourses();
+  if (!list.length) {
     toast('还没有课表，先同步一次');
     return;
   }
@@ -622,7 +847,7 @@ function exportIcs() {
 
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 
-  for (const c of courses) {
+  for (const c of list) {
     const weeks = [...parseWeeks(c.weeks)].sort((a, b) => a - b);
     if (!weeks.length) continue;
     const monday = termMonday();
@@ -659,6 +884,16 @@ function exportIcs() {
 
   lines.push('END:VCALENDAR');
   const blob = new Blob([lines.join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });
+  // iPhone 上 a 标签的 download 不生效，改用系统分享面板（可存到「文件」或直接进日历）
+  const file = new File([blob], '南林课表.ics', { type: 'text/calendar' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: '南林课表' });
+      return;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -687,6 +922,13 @@ function bind() {
   });
   $('#btnSync').addEventListener('click', onSync);
   $('#btnSettings').addEventListener('click', openSettings);
+  $('#btnAdd').addEventListener('click', () => {
+    const today = (new Date().getDay() + 6) % 7 + 1;
+    openEditor(null, today, 1);
+  });
+  $('#editForm').addEventListener('submit', submitEditor);
+  $('#btnEditCustom').addEventListener('click', () => openEditor(detailCourse));
+  $('#btnDelCustom').addEventListener('click', () => deleteCustom(detailCourse));
 
   $('#accountForm').addEventListener('submit', submitLogin);
   $('#cookieForm').addEventListener('submit', submitCookie);
@@ -700,9 +942,13 @@ function bind() {
     if (target.closest('[data-close]')) closeMask('#detailMask');
     if (target.closest('[data-close-login]')) closeMask('#loginMask');
     if (target.closest('[data-close-settings]')) closeMask('#settingsMask');
+    if (target.closest('[data-close-edit]')) {
+      editing = null;
+      closeMask('#editMask');
+    }
   });
 
-  ['#detailMask', '#loginMask', '#settingsMask'].forEach((id) => {
+  ['#detailMask', '#loginMask', '#settingsMask', '#editMask'].forEach((id) => {
     $(id).addEventListener('click', (event) => {
       if (event.target === event.currentTarget) event.currentTarget.hidden = true;
     });
@@ -713,6 +959,7 @@ function bind() {
       closeMask('#detailMask');
       closeMask('#loginMask');
       closeMask('#settingsMask');
+      closeMask('#editMask');
     }
   });
 
