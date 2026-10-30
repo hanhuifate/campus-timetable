@@ -37,6 +37,8 @@ jobs:
           echo "--- HTTPS ---"
           curl -sS -o /dev/null -w "uia http_code=%{http_code} time=%{time_total}s\n" --max-time 20 https://uia.njfu.edu.cn/authserver/login || echo "uia 连接失败"
           curl -sS -o /dev/null -w "jwxt http_code=%{http_code} time=%{time_total}s\n" --max-time 20 http://jwxt.njfu.edu.cn/ || echo "jwxt 连接失败"
+          echo "--- node fetch ---"
+          node -e "const t=Date.now(); fetch('https://uia.njfu.edu.cn/authserver/login').then(r=>console.log('node fetch ok',r.status,Date.now()-t+'ms')).catch(e=>console.log('node fetch ERR',e.message,e.cause&&e.cause.code,Date.now()-t+'ms'))"
 
       - name: 抓取课表
         if: env.CT_USERNAME != ''

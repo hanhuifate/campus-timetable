@@ -11,6 +11,9 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const dns = require('node:dns');
+// 云主机（GitHub Actions 等）通常没有 IPv6 出口，优先用 IPv4 免得连超时
+dns.setDefaultResultOrder('ipv4first');
 const { casLogin, syncTimetable } = require('../server.js');
 
 const USER = process.env.CT_USERNAME || process.argv[2];
