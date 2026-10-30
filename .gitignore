@@ -9,6 +9,8 @@ captures/
 local.properties
 .idea/
 *.iml
+web/tools/.env.local
+web/tools/sync.log
 
 # 系统文件
 .DS_Store

@@ -69,6 +69,19 @@ async function fetchOnce() {
   const dir = path.join(__dirname, '..', 'public', 'data');
   fs.mkdirSync(dir, { recursive: true });
   const out = path.join(dir, 'timetable.json');
+
+  // 课程没变就不写文件，免得定时任务每天都产生一个只有时间戳变化的空提交
+  let previous = null;
+  try {
+    previous = JSON.parse(fs.readFileSync(out, 'utf8'));
+  } catch (_) {
+    previous = null;
+  }
+  if (previous && JSON.stringify(previous.courses) === JSON.stringify(courses)) {
+    console.log(`课表没有变化：${courses.length} 门课`);
+    return;
+  }
+
   fs.writeFileSync(
     out,
     JSON.stringify({ syncedAt: new Date().toISOString(), count: courses.length, courses }, null, 2) + '\n',

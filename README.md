@@ -57,17 +57,27 @@ node server.js        # 打开 http://127.0.0.1:8787
 
 注意：公开仓库的 Pages 是公开的，`timetable.json`（课程名/教师/教室/周次）任何人都能访问；学号密码只在你本机用，不进仓库、不进浏览器。若不想公开，可把仓库设为 Private（Pages 需 GitHub Pro），或改用 `render.yaml` 部署到 Render（免费实例要绑卡验证身份）。
 
-#### 让仓库自动抓取（不用电脑也能更新）
+#### 自动同步（本机定时跑）
 
-`.github/workflows/sync-timetable.yml` 每天 05:00（北京时间）在 GitHub 的服务器上跑一次 `tools/fetch-timetable.js`，课表有变化就自动提交，Pages 随后自动重新部署。
+学校站点对境外 IP 会重置连接（登录能过、抓课表页会被掐断 `ECONNRESET`），所以在 GitHub 的服务器上跑不通；`.github/workflows/sync-timetable.yml` 只保留手动触发（需先在仓库 Secrets 里配 `CT_USERNAME` / `CT_PASSWORD`）。日常自动更新改在自己电脑上定时跑：
 
-1. 仓库 Settings → Secrets and variables → Actions → New repository secret，加两条：
-   - `CT_USERNAME` = 学号
-   - `CT_PASSWORD` = 密码
-2. 想立刻抓一次：Actions → Sync Timetable → Run workflow。
-3. 没配这两条 Secret 时，工作流会直接跳过，不会报错。
+1. `web/tools/` 下建 `.env.local`（已在 `.gitignore` 里，不会进仓库），两行：
+   ```
+   CT_USERNAME=学号
+   CT_PASSWORD=密码
+   ```
+2. 手动试跑一次：
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File D:\CampusTimetable\web\tools\sync-and-push.ps1
+   ```
+   看到 `OK: timetable unchanged` 或 `OK: committed and pushed timetable update` 即正常。
+3. 注册每天的计划任务（时间自改）：
+   ```powershell
+   schtasks /Create /SC DAILY /ST 08:00 /TN "CampusTimetable Sync" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File D:\CampusTimetable\web\tools\sync-and-push.ps1"
+   ```
+   立刻跑一次：`schtasks /Run /TN "CampusTimetable Sync"`；删除：`schtasks /Delete /TN "CampusTimetable Sync" /F`。
 
-限制：`schedule` 在公开仓库里可能被延迟几十分钟，连续 60 天没有提交会自动停掉定时任务，手动 Run 一次即可恢复；密码改了要同步更新 Secret。
+脚本流程：登录 → 抓课表 → 课程没变就不动文件（避免每天空提交）→ 有变化才写 `web/public/data/timetable.json` 并提交推送，Pages 随后自动重新部署。日志在 `web/tools/sync.log`。电脑关机时当次会跳过，开机后等下次自动跑或手动 `schtasks /Run` 补一次。改密码只改 `.env.local`。
 
 ### 在 iPhone 上使用
 

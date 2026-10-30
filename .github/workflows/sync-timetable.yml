@@ -1,8 +1,11 @@
 name: Sync Timetable
 
+# 学校站点对海外 IP 会重置连接（登录能过、抓课表页会被掐断），
+# 在 GitHub 云端跑不通，日常自动同步请用本机计划任务：
+#   web/tools/sync-and-push.ps1
+# 这里保留手动触发，方便以后网络策略变化时再试。
+
 on:
-  schedule:
-    - cron: '0 21 * * *' # 每天 05:00（北京时间）
   workflow_dispatch:
 
 permissions:
@@ -18,7 +21,6 @@ jobs:
     env:
       CT_USERNAME: ${{ secrets.CT_USERNAME }}
       CT_PASSWORD: ${{ secrets.CT_PASSWORD }}
-      CT_DEBUG: '1'
       NODE_OPTIONS: '--dns-result-order=ipv4first'
     steps:
       - uses: actions/checkout@v4
