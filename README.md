@@ -42,15 +42,20 @@ node server.js        # 打开 http://127.0.0.1:8787
 - **手机访问**：电脑上以 `HOST=0.0.0.0 node server.js` 启动（PowerShell 用 `$env:HOST="0.0.0.0"; node server.js`），手机与电脑连同一 Wi-Fi，访问 `http://电脑IP:8787`。
 - **周次对不上**：学期起始日默认按「9 月 1 日后的第一个周一」推算，在设置里改「学期第一周周一」即可。
 
-#### 部署到公网（iPhone 不装 App，Safari 直接用）
+#### 纯静态部署（iPhone 不装 App，Safari 直接用，不用服务器）
 
-iPhone 上只能用 Safari 打开网页。而 CAS 登录和教务接口都没有 CORS 头，浏览器 JS 不能跨域直接调，登录后的 Cookie 也只能由服务端持有——所以「纯网页能用」的前提是：把这个 Node 服务托管到一个公网 HTTPS 地址。`web/` 本身仍然是零依赖、可直接部署的。
+`web/public/` 本身就是一个完整静态站点；没有后端时它会自动切到「静态模式」：课表从仓库里的 `web/public/data/timetable.json` 拉取，右上角按钮变成「刷新」，点一下重新拉最新数据。
 
-1. **Render（免费，已备好蓝图）**：仓库根目录有 `render.yaml`，登录 render.com → New → Blueprint → 选本仓库，会自动在 `web/` 下建一个免费 Web Service（Node 20、新加坡区）。部署完得到一个 `https://xxx.onrender.com` 地址。
-2. **手动建也可以**：New → Web Service → 连接本仓库 → Root Directory 填 `web` → Build Command 留空 → Start Command 填 `node server.js`。
-3. 手机 Safari 打开该地址 → 右上角「同步」登录 → 分享菜单里选「添加到主屏幕」，图标与全屏生效（已补 `apple-touch-icon.png`）。导出 `.ics` 会走 iOS 系统分享面板，可直接存进「文件」或导入日历。
+1. **仓库设置**：Settings → Pages → Source 选 **GitHub Actions**（`.github/workflows/pages.yml` 已备好，推送到 `main` 自动部署 `web/public`）。
+2. **导出课表**（在电脑上，`web` 目录下）：
+   ```powershell
+   $env:CT_USERNAME="学号"; $env:CT_PASSWORD="密码"; node tools/fetch-timetable.js
+   ```
+   生成 `web/public/data/timetable.json`（只有课程，不写学号和姓名）。
+3. **提交推送**：`git add web/public/data/timetable.json` → commit → push，等 Actions 跑完。
+4. **手机打开** `https://<用户名>.github.io/campus-timetable/` → 分享菜单「添加到主屏幕」。之后课表变了就重复第 2、3 步，手机上点「刷新」即可。
 
-免费实例的代价：十几分钟没人访问就休眠，冷启动约半分钟；进程重启后服务端会话失效，手机上重新输一次学号密码即可（课表与自定义课程存在手机本地，不受影响）。若学校教务对境外 IP 有拦截，可把 `render.yaml` 里的 `region` 换成 `singapore` 之外的其他区，或改用 Railway / 自己的 VPS。
+注意：公开仓库的 Pages 是公开的，`timetable.json`（课程名/教师/教室/周次）任何人都能访问；学号密码只在你本机用，不进仓库、不进浏览器。若不想公开，可把仓库设为 Private（Pages 需 GitHub Pro），或改用 `render.yaml` 部署到 Render（免费实例要绑卡验证身份）。
 
 ### 在 iPhone 上使用
 
@@ -104,7 +109,7 @@ gradle assembleDebug
 ## 数据与隐私
 
 - 学号、密码、Cookie 只保存在手机本机：密码与 Cookie 由 Android Keystore 的 AES-GCM 密钥加密后写入私有 SharedPreferences，不会上传到任何服务器。
-- 网页版的账号密码只发给本机运行的 Node 服务，用于代登录学校 CAS；Cookie 仅存在该进程内存中，服务停止即清除。课表存在浏览器的 localStorage 里，不会同步到任何第三方。
+- 网页版的账号密码只发给本机运行的 Node 服务，用于代登录学校 CAS；Cookie 仅存在该进程内存中，服务停止即清除。课表存在浏览器的 localStorage 里，不会同步到任何第三方。纯静态模式（GitHub Pages）下浏览器不接触账号密码，课表由你本机运行 `tools/fetch-timetable.js` 导出成 `data/timetable.json`；若把它提交到公开仓库，课程名 / 教师 / 教室会被公开，学号密码不会。
 - 仓库中不含任何真实账号、密码或抓取到的课表数据。
 - 安装包为 debug 签名，仅用于自用安装与测试。
 

@@ -98,6 +98,9 @@ let customCourses = load(KEY.custom, []);
 
 let viewWeek = 0;
 let serverLoggedIn = false;
+// 纯静态托管（GitHub Pages 等）没有 /api 后端，课表从仓库里的 data/timetable.json 拉取
+let staticMode = false;
+const DATA_URL = 'data/timetable.json';
 let detailCourse = null;
 
 if (!settings.campus) settings.campus = guessCampus(courses);
@@ -620,6 +623,28 @@ function applySync(data) {
   render();
 }
 
+async function loadStatic() {
+  const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
+  if (res.status === 404) throw new Error('仓库里还没有课表数据，先在电脑上导出一次');
+  if (!res.ok) throw new Error(`拉取失败（HTTP ${res.status}）`);
+  const data = await res.json();
+  if (!Array.isArray(data.courses) || !data.courses.length) throw new Error('课表数据是空的');
+  applySync(data);
+}
+
+async function refreshStatic(showToast) {
+  const btn = $('#btnSync');
+  btn.disabled = true;
+  try {
+    await loadStatic();
+    if (showToast) toast(`已更新 ${courses.length} 节课`);
+  } catch (err) {
+    if (showToast) toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function checkSession() {
   try {
     const me = await api('/api/me');
@@ -638,7 +663,13 @@ async function checkSession() {
         });
     }
   } catch {
-    /* 没开服务或网络不通：只用本地缓存 */
+    // 没有后端（纯静态托管）：课表来自仓库里的 data/timetable.json，「同步」变成「刷新」
+    staticMode = true;
+    const btn = $('#btnSync');
+    btn.textContent = '刷新';
+    btn.title = '从仓库拉取最新课表';
+    $('#btnLogout').hidden = true;
+    await refreshStatic(false);
   }
 }
 
@@ -727,6 +758,10 @@ async function submitCookie(event) {
 /* --------------------------------------------------------------- 同步 */
 
 async function onSync() {
+  if (staticMode) {
+    await refreshStatic(true);
+    return;
+  }
   if (!serverLoggedIn) {
     openLogin();
     return;
@@ -992,7 +1027,7 @@ function bind() {
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 /* ----------------------------------------------------------------- 启动 */

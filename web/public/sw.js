@@ -1,13 +1,14 @@
-/* 只缓存页面外壳，课表数据走接口，避免看到过期课表。 */
-const VERSION = 'v7';
+/* 只缓存页面外壳，课表数据走接口/JSON，避免看到过期课表。 */
+const VERSION = 'v8';
 const SHELL = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/manifest.webmanifest',
-  '/icon.svg',
-  '/apple-touch-icon.png'
+  './',
+  './index.html',
+  './style.css',
+  './app.js',
+  './manifest.webmanifest',
+  './icon.svg',
+  './icon-512.png',
+  './apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -28,7 +29,9 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+  if (url.origin !== self.location.origin) return;
+  // 接口和课表 JSON 都不缓存：每次都要拿最新的
+  if (url.pathname.includes('/api/') || url.pathname.endsWith('/timetable.json')) return;
 
   event.respondWith(
     fetch(req)
@@ -37,6 +40,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(VERSION).then((cache) => cache.put(req, copy)).catch(() => {});
         return res;
       })
-      .catch(() => caches.match(req).then((hit) => hit || caches.match('/index.html')))
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
   );
 });
