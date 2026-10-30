@@ -1,0 +1,47 @@
+name: Sync Timetable
+
+on:
+  schedule:
+    - cron: '0 21 * * *' # 每天 05:00（北京时间）
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-timetable
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      CT_USERNAME: ${{ secrets.CT_USERNAME }}
+      CT_PASSWORD: ${{ secrets.CT_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 没配置 Secrets 就跳过
+        if: env.CT_USERNAME == ''
+        run: echo "仓库没有配置 CT_USERNAME / CT_PASSWORD，跳过抓取"
+
+      - name: 抓取课表
+        if: env.CT_USERNAME != ''
+        run: node web/tools/fetch-timetable.js
+
+      - name: 有变化就提交
+        if: env.CT_USERNAME != ''
+        run: |
+          if git diff --quiet -- web/public/data/timetable.json; then
+            echo "课表没有变化"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add web/public/data/timetable.json
+          git commit -m "chore(web): 自动同步课表数据"
+          git push

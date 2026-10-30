@@ -1,5 +1,5 @@
 /* 只缓存页面外壳，课表数据走接口/JSON，避免看到过期课表。 */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = [
   './',
   './index.html',

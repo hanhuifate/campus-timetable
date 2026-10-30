@@ -623,13 +623,47 @@ function applySync(data) {
   render();
 }
 
+/* 静态模式下课表 JSON 的来源：先同源（Pages 部署的那份），同源不通时退回 raw.githubusercontent */
+function dataSources() {
+  const list = [`${DATA_URL}?t=${Date.now()}`];
+  const host = location.hostname.match(/^([^.]+)\.github\.io$/);
+  const repo = location.pathname.split('/')[1];
+  if (host && repo) {
+    list.push(
+      `https://raw.githubusercontent.com/${host[1]}/${repo}/main/web/public/data/timetable.json?t=${Date.now()}`
+    );
+  }
+  return list;
+}
+
 async function loadStatic() {
-  const res = await fetch(`${DATA_URL}?t=${Date.now()}`, { cache: 'no-store' });
-  if (res.status === 404) throw new Error('仓库里还没有课表数据，先在电脑上导出一次');
-  if (!res.ok) throw new Error(`拉取失败（HTTP ${res.status}）`);
-  const data = await res.json();
-  if (!Array.isArray(data.courses) || !data.courses.length) throw new Error('课表数据是空的');
-  applySync(data);
+  let lastErr = null;
+  for (const url of dataSources()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.status === 404) {
+          lastErr = new Error('仓库里还没有课表数据，先在电脑上导出一次');
+          lastErr.final = true;
+          throw lastErr;
+        }
+        if (!res.ok) throw new Error(`拉取失败（HTTP ${res.status}）`);
+        const data = await res.json();
+        if (!Array.isArray(data.courses) || !data.courses.length) {
+          lastErr = new Error('课表数据是空的');
+          lastErr.final = true;
+          throw lastErr;
+        }
+        applySync(data);
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (err && err.final) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      }
+    }
+  }
+  throw lastErr || new Error('拉取失败');
 }
 
 async function refreshStatic(showToast) {
@@ -639,7 +673,9 @@ async function refreshStatic(showToast) {
     await loadStatic();
     if (showToast) toast(`已更新 ${courses.length} 节课`);
   } catch (err) {
-    if (showToast) toast(err.message);
+    if (showToast) {
+      toast(courses.length && !(err && err.final) ? '网络不稳，刷新失败，先显示上次的课表' : err.message);
+    }
   } finally {
     btn.disabled = false;
   }

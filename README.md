@@ -57,6 +57,18 @@ node server.js        # 打开 http://127.0.0.1:8787
 
 注意：公开仓库的 Pages 是公开的，`timetable.json`（课程名/教师/教室/周次）任何人都能访问；学号密码只在你本机用，不进仓库、不进浏览器。若不想公开，可把仓库设为 Private（Pages 需 GitHub Pro），或改用 `render.yaml` 部署到 Render（免费实例要绑卡验证身份）。
 
+#### 让仓库自动抓取（不用电脑也能更新）
+
+`.github/workflows/sync-timetable.yml` 每天 05:00（北京时间）在 GitHub 的服务器上跑一次 `tools/fetch-timetable.js`，课表有变化就自动提交，Pages 随后自动重新部署。
+
+1. 仓库 Settings → Secrets and variables → Actions → New repository secret，加两条：
+   - `CT_USERNAME` = 学号
+   - `CT_PASSWORD` = 密码
+2. 想立刻抓一次：Actions → Sync Timetable → Run workflow。
+3. 没配这两条 Secret 时，工作流会直接跳过，不会报错。
+
+限制：`schedule` 在公开仓库里可能被延迟几十分钟，连续 60 天没有提交会自动停掉定时任务，手动 Run 一次即可恢复；密码改了要同步更新 Secret。
+
 ### 在 iPhone 上使用
 
 这个工程是 Android 原生实现，无法直接装到 iOS，但课表可以这样过去用：
