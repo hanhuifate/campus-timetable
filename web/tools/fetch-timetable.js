@@ -43,6 +43,7 @@ const PASS = process.env.CT_PASSWORD || process.argv[3];
   console.log(`已写入 ${path.relative(process.cwd(), out)}：${courses.length} 门课`);
   console.log('提交并推送后，手机上打开网页点「刷新」就能看到。');
 })().catch((err) => {
-  console.error('导出失败：', (err && err.message) || err);
+  const cause = err && err.cause ? ` (${err.cause.code || err.cause.message})` : '';
+  console.error('导出失败：', ((err && err.message) || err) + cause);
   process.exit(1);
 });

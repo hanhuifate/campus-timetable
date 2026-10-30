@@ -29,6 +29,15 @@ jobs:
         if: env.CT_USERNAME == ''
         run: echo "仓库没有配置 CT_USERNAME / CT_PASSWORD，跳过抓取"
 
+      - name: 探测学校站点可达性
+        if: env.CT_USERNAME != ''
+        run: |
+          echo "--- DNS ---"
+          getent hosts uia.njfu.edu.cn jwxt.njfu.edu.cn || echo "DNS 解析失败"
+          echo "--- HTTPS ---"
+          curl -sS -o /dev/null -w "uia http_code=%{http_code} time=%{time_total}s\n" --max-time 20 https://uia.njfu.edu.cn/authserver/login || echo "uia 连接失败"
+          curl -sS -o /dev/null -w "jwxt http_code=%{http_code} time=%{time_total}s\n" --max-time 20 http://jwxt.njfu.edu.cn/ || echo "jwxt 连接失败"
+
       - name: 抓取课表
         if: env.CT_USERNAME != ''
         run: node web/tools/fetch-timetable.js
