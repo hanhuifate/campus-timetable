@@ -305,11 +305,12 @@ async function casLogin(username, password) {
   let res = await request(session, loginUrl);
   const html = await res.text();
   const hidden = parseHidden(html);
-  if (!hidden.lt || !hidden.execution) {
-    throw new Error('没能拿到登录页参数（lt / execution），学校登录页可能改版了');
+  // 学校 2026-11 起换成了新登录页：不再下发 lt / 加密盐，改用 execution + loginType
+  if (!hidden.execution) {
+    throw new Error('没能拿到登录页参数（execution），学校登录页可能改版了');
   }
 
-  if (await needsCaptcha(session, username, loginUrl)) {
+  if (hidden.lt && (await needsCaptcha(session, username, loginUrl))) {
     const err = new Error(
       '学校要求这个账号输入图形验证码（通常是之前密码试错几次后触发的）。' +
         '请先在浏览器里登录一次教务把验证码过掉，再回来重试；或直接用「粘贴 Cookie」同步。'
@@ -330,13 +331,18 @@ async function casLogin(username, password) {
   const form = new URLSearchParams({
     username,
     password: encoded,
-    lt: hidden.lt,
-    // 隐藏字段里给的是 dynamicLogin，账号密码登录必须显式改成这个值
-    dllt: 'userNamePasswordLogin',
     execution: hidden.execution,
-    _eventId: 'submit',
-    rmShown: '1'
+    _eventId: 'submit'
   });
+  if (hidden.lt) {
+    form.set('lt', hidden.lt);
+    // 隐藏字段里给的是 dynamicLogin，账号密码登录必须显式改成这个值
+    form.set('dllt', 'userNamePasswordLogin');
+    form.set('rmShown', '1');
+  } else {
+    form.set('loginType', '1');
+    if (hidden.encrypted) form.set('encrypted', hidden.encrypted);
+  }
 
   res = await request(session, loginUrl, {
     method: 'POST',
@@ -347,10 +353,18 @@ async function casLogin(username, password) {
     },
     body: form.toString()
   });
+  if (DEBUG) {
+    const shown = [...form.entries()]
+      .filter(([k]) => k !== 'password')
+      .map(([k, v]) => `${k}=${String(v).slice(0, 18)}`)
+      .join(' | ');
+    console.log(`[login] form: ${shown} | pwdLen=${encoded.length}`);
+  }
 
   // 登录成功 CAS 会 302 到带 ticket 的教务地址；没跳转就是没登录成功
   if (res.status < 300 || res.status >= 400) {
     const body = await res.text();
+    if (DEBUG) console.log(`[login] POST 返回 ${res.status}：${stripTags(body).slice(0, 200)}`);
     const err = new Error(pageHint(body) || '登录失败：账号或密码不正确');
     err.code = 'BAD_CREDENTIALS';
     throw err;
@@ -633,17 +647,21 @@ function courseUnits(cellHtml) {
 
 const TCH_DIV_RE = /<div[^>]*\bclass\s*=\s*["'][^"']*tch-name[^"']*["'][^>]*>([\s\S]*?)<\/div>/i;
 
-/** 一个 item-box 里的课：名字在 <p>，学分/节次在 tch-name，地点/周次在紧跟的 div。 */
+/**
+ * 一个 item-box 里的课：名字在 <p>，紧跟其后的 tch-name / div 才是这门的学分节次、地点周次。
+ * 同一格叠了多门时，item-box 里会连续出现多个 <p>，所以按 <p> 逐段切，不能整段共用一份 meta。
+ */
 function boxCourses(boxHtml) {
-  const meta = stripTags(boxHtml);
-  const body = boxHtml.replace(new RegExp(TCH_DIV_RE.source, 'gi'), ' '); // tch-name 里是“学分/节次”，不是地点
-  const seg = stripTags(body);
   return boxHtml
     .split(/<p[^>]*>/i)
     .slice(1)
     .map((part) => {
       const cut = part.search(/<\/p>/i);
-      return { name: stripTags(cut >= 0 ? part.slice(0, cut) : part), seg, meta };
+      const name = stripTags(cut >= 0 ? part.slice(0, cut) : part);
+      const rest = cut >= 0 ? part.slice(cut) : '';
+      const meta = stripTags(rest);
+      const seg = stripTags(rest.replace(new RegExp(TCH_DIV_RE.source, 'gi'), ' '));
+      return { name, seg, meta };
     })
     .filter((it) => it.name);
 }
@@ -711,26 +729,28 @@ function parseJsxsd(html) {
       for (const unit of courseUnits(cell)) {
         const teacher = (/教师[:：]\s*([^\s]+)/.exec(stripTags(unit)) || [])[1] || cellTeacher;
         const boxes = itemBoxes(unit);
-        for (const { name, seg, meta } of boxCourses(boxes.length ? boxes[0] : unit)) {
-          const weeks = weeksFromZcd((WEEK_RE.exec(meta) || [])[1] || '', meta);
-          if (!weeks) continue;
-          const { start, end } = SECTION_RE.test(meta) ? sectionsOf(meta, rowIndex) : rowSection;
-          const room = roomOf(seg);
-          const key = `${name}|${teacher}|${room}|${day}|${start}|${end}|${weeks}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          out.push({
-            name,
-            teacher,
-            room,
-            day,
-            start,
-            end,
-            weeks,
-            color: Math.abs(hashCode(name)) % 8,
-            id: crypto.createHash('md5').update(key).digest('hex').slice(0, 12),
-            custom: false
-          });
+        for (const box of boxes.length ? boxes : [unit]) {
+          for (const { name, seg, meta } of boxCourses(box)) {
+            const weeks = weeksFromZcd((WEEK_RE.exec(meta) || [])[1] || '', meta);
+            if (!weeks) continue;
+            const { start, end } = SECTION_RE.test(meta) ? sectionsOf(meta, rowIndex) : rowSection;
+            const room = roomOf(seg);
+            const key = `${name}|${teacher}|${room}|${day}|${start}|${end}|${weeks}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push({
+              name,
+              teacher,
+              room,
+              day,
+              start,
+              end,
+              weeks,
+              color: Math.abs(hashCode(name)) % 8,
+              id: crypto.createHash('md5').update(key).digest('hex').slice(0, 12),
+              custom: false
+            });
+          }
         }
       }
     });
