@@ -613,6 +613,7 @@ function applySync(data) {
     if (customCourses.length) trimCustom(courses);
   }
   if (data.user) meta.user = data.user;
+  if (data.syncedAt) meta.syncedAt = data.syncedAt;
   meta.updatedAt = Date.now();
   if (!settings.campus) {
     settings.campus = guessCampus(courses);
@@ -668,13 +669,21 @@ async function loadStatic() {
 
 async function refreshStatic(showToast) {
   const btn = $('#btnSync');
+  const dataAge = Date.now() - (Date.parse(meta.syncedAt || '') || 0);
   btn.disabled = true;
   try {
     await loadStatic();
     if (showToast) toast(`已更新 ${courses.length} 节课`);
   } catch (err) {
-    if (showToast) {
-      toast(courses.length && !(err && err.final) ? '网络不稳，刷新失败，先显示上次的课表' : err.message);
+    const held = courses.length && !(err && err.final);
+    // 自动刷新失败时通常不打扰，但手里的课表已经很旧就要明确说出来
+    if (showToast || (held && dataAge > 2 * 86400000)) {
+      if (held) {
+        const when = meta.syncedAt ? new Date(meta.syncedAt).toLocaleString('zh-CN') : '上次';
+        toast(`没拿到最新课表，现在显示的是 ${when} 那份，检查网络后再点「刷新」`);
+      } else {
+        toast(err.message);
+      }
     }
   } finally {
     btn.disabled = false;
