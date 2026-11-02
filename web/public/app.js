@@ -80,9 +80,18 @@ function mdText(date) {
 function defaultTermStart() {
   const now = new Date();
   const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  let d = new Date(year, 8, 1);
-  const shift = (8 - d.getDay()) % 7;
-  d = addDays(d, shift);
+  // 校历第 1 周是含 9 月 1 日的那一周（学校 8 月底就开学，不能取 9/1 之后的周一）
+  const d = new Date(year, 8, 1);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// 旧版把第一周算成 9 月 1 日之后的周一，比真实校历晚一整周
+function legacyTermStart() {
+  const now = new Date();
+  const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  const d = new Date(year, 8, 1);
+  d.setDate(d.getDate() + ((8 - d.getDay()) % 7));
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
@@ -104,6 +113,11 @@ const DATA_URL = 'data/timetable.json';
 let detailCourse = null;
 
 if (!settings.campus) settings.campus = guessCampus(courses);
+// 之前用旧算法存下来的开学日期会整整晚一周，自动纠正一次（手动改过的日期不动）
+if (settings.termStart === legacyTermStart()) {
+  settings.termStart = defaultTermStart();
+  saveSettings();
+}
 
 function guessCampus(list) {
   const bai = list.filter((c) => String(c.room || '').includes('白马')).length;
