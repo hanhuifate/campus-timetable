@@ -1,6 +1,6 @@
 {
-  "syncedAt": "2026-10-30T17:23:31.164Z",
-  "count": 15,
+  "syncedAt": "2026-11-02T04:23:33.240Z",
+  "count": 16,
   "courses": [
     {
       "name": "大学英语(1)",
@@ -120,6 +120,18 @@
       "weeks": "16",
       "color": 2,
       "id": "4fb02dd2cf54",
+      "custom": false
+    },
+    {
+      "name": "高等数学A(1)",
+      "teacher": "邬良春",
+      "room": "白马校区6号楼-白马校区6202",
+      "day": 4,
+      "start": 5,
+      "end": 7,
+      "weeks": "6-15",
+      "color": 2,
+      "id": "75732a8db2b3",
       "custom": false
     },
     {
