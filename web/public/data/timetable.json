@@ -1,6 +1,6 @@
 {
-  "syncedAt": "2026-11-02T04:23:33.240Z",
-  "count": 16,
+  "syncedAt": "2026-11-09T05:56:20.446Z",
+  "count": 17,
   "courses": [
     {
       "name": "大学英语(1)",
@@ -105,9 +105,9 @@
       "day": 4,
       "start": 1,
       "end": 4,
-      "weeks": "7-14",
+      "weeks": "7-10,12-14",
       "color": 3,
-      "id": "3a923ed8db19",
+      "id": "343e47baaf06",
       "custom": false
     },
     {
@@ -171,15 +171,27 @@
       "custom": false
     },
     {
+      "name": "电子信息工程导论",
+      "teacher": "李春,焦..",
+      "room": "白马校区6号楼-白马校区6114",
+      "day": 7,
+      "start": 1,
+      "end": 4,
+      "weeks": "12",
+      "color": 3,
+      "id": "f84f9a90011f",
+      "custom": false
+    },
+    {
       "name": "形势与政策（1）",
-      "teacher": "薛桂波",
+      "teacher": "李春,焦..",
       "room": "白马校区3号楼-白马校区3515",
       "day": 7,
       "start": 1,
       "end": 4,
       "weeks": "14-15",
       "color": 0,
-      "id": "af807595f127",
+      "id": "6b2db1146ff9",
       "custom": false
     },
     {
