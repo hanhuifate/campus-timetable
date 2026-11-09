@@ -391,8 +391,8 @@ function toMin(timeText) {
 function renderGrid() {
   const grid = $('#grid');
   const weekCache = {};
-  // 这一周有周末课就自动带上周六/周日，避免周末的课直接消失；设置里勾选则一直显示
-  const hasWeekend = allCourses().some((c) => Number(c.day) >= 6 && inWeek(c, viewWeek, weekCache));
+  // 本学期只要有周末课就一直带着周六/周日，别因为这一周没课就整列消失；设置里勾选则始终显示
+  const hasWeekend = allCourses().some((c) => Number(c.day) >= 6);
   const showWeekend = !!settings.showWeekend || hasWeekend;
   const days = showWeekend ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5];
   const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--row-h')) || 62;
