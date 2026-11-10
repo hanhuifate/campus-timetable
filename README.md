@@ -4,7 +4,7 @@
 
 | 目录 | 学校 | 数据来源 | 安装包 |
 | --- | --- | --- | --- |
-| `NJFU-Timetable/` | 南京林业大学 | `https://jwxt.njfu.edu.cn`（统一认证 CAS） | `apk/南林课表-v35-debug.apk` |
+| `NJFU-Timetable/` | 南京林业大学 | `https://jwxt.njfu.edu.cn`（统一认证 CAS） | `apk/南林课表-v36-debug.apk` |
 | `WHIT-Timetable/` | 芜湖职业技术大学 | `https://ehall.whit.edu.cn/publicapp/sys/mykbxt/index.do` | `apk/芜湖课表-v16-debug.apk` |
 
 ## 功能

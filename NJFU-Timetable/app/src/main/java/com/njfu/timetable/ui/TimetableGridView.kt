@@ -30,6 +30,13 @@ class TimetableGridView(context: Context) : View(context) {
             invalidate()
         }
 
+    /** 顶部日期条选中的星期（1-7）；null 表示高亮今天所在列。 */
+    var selectedDay: Int? = null
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     var dayCount: Int = 7
         set(value) {
             field = value.coerceIn(5, 7)
@@ -163,7 +170,7 @@ class TimetableGridView(context: Context) : View(context) {
         val rowH = rowHeight()
         if (colW <= 0 || rowH <= 0) return
 
-        val today = todayColumn()
+        val today = (selectedDay ?: todayColumn()).coerceIn(1, dayCount)
 
         // 表头
         for (i in 1..dayCount) {

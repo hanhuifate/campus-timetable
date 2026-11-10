@@ -272,6 +272,7 @@ class MainActivity : Activity() {
         // 本周默认看今天，其他周默认看周一；换周时选择会被清空
         val day = (selectedDay ?: if (week == currentWeek()) todayIndex else 1)
             .coerceIn(1, prefs.dayCount)
+        grid.selectedDay = day
         renderDayPicker(day, todayIndex)
         renderTodayCard(day, todayIndex)
     }
@@ -306,10 +307,11 @@ class MainActivity : Activity() {
                 setPadding(0, dp(5f), 0, dp(5f))
                 setLineSpacing(0f, 1.15f)
                 layoutParams = LinearLayout.LayoutParams(
-                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                    0, dp(42f), 1f
                 ).apply { if (d > 1) marginStart = dp(4f) }
                 setOnClickListener {
                     selectedDay = d
+                    grid.selectedDay = d
                     renderDayPicker(d, todayIndex())
                     renderTodayCard(d, todayIndex())
                 }
