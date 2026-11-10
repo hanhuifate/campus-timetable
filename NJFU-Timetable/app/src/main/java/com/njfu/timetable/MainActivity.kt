@@ -43,9 +43,13 @@ class MainActivity : Activity() {
     private lateinit var subtitle: TextView
     private lateinit var todayTitle: TextView
     private lateinit var todayDetail: TextView
+    private lateinit var dayPicker: LinearLayout
     private lateinit var weekBar: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var editButton: TextView
+
+    /** 顶部日期条选中的星期（1-7）；null 表示跟随今天，换周时清空。 */
+    private var selectedDay: Int? = null
 
     private var week = 1
     private var courses: List<Course> = emptyList()
@@ -130,6 +134,14 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ).apply { topMargin = dp(10f) }
         todayCard.layoutParams = cardParams
+        dayPicker = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8f) }
+        }
+        todayCard.addView(dayPicker)
         todayTitle = Ui.text(this, "", 13f, Ui.TEXT_PRIMARY, bold = true)
         todayDetail = Ui.text(this, "", 11.5f, Ui.TEXT_SECONDARY)
         todayDetail.setPadding(0, dp(3f), 0, 0)
@@ -152,6 +164,7 @@ class MainActivity : Activity() {
         grid.onCourseClick = { showCourse(it) }
         grid.onWeekSwipe = { delta ->
             week = max(1, week + delta)
+            selectedDay = null
             renderWeek()
         }
         grid.onEmptyClick = { day, section ->
@@ -194,9 +207,9 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8f) }
         }
-        weekBar.addView(navButton("上一周") { week = max(1, week - 1); renderWeek() })
-        weekBar.addView(navButton("回到本周") { week = currentWeek(); renderWeek() })
-        weekBar.addView(navButton("下一周") { week += 1; renderWeek() })
+        weekBar.addView(navButton("上一周") { week = max(1, week - 1); selectedDay = null; renderWeek() })
+        weekBar.addView(navButton("回到本周") { week = currentWeek(); selectedDay = null; renderWeek() })
+        weekBar.addView(navButton("下一周") { week += 1; selectedDay = null; renderWeek() })
         root.addView(weekBar)
 
         statusText = Ui.text(this, "", 10f, Ui.TEXT_SECONDARY, gravity = Gravity.CENTER)
@@ -256,27 +269,103 @@ class MainActivity : Activity() {
         grid.campus = prefs.campus
         grid.courses = courses
 
+        // 本周默认看今天，其他周默认看周一；换周时选择会被清空
+        val day = (selectedDay ?: if (week == currentWeek()) todayIndex else 1)
+            .coerceIn(1, prefs.dayCount)
+        renderDayPicker(day, todayIndex)
+        renderTodayCard(day, todayIndex)
+    }
+
+    /** 一排星期按钮，点哪天就在下面看哪天的课。 */
+    private fun renderDayPicker(day: Int, todayIndex: Int) {
+        dayPicker.removeAllViews()
+        val monday = weekStartMillis()
+        for (d in 1..prefs.dayCount) {
+            val cal = Calendar.getInstance().apply {
+                timeInMillis = monday
+                add(Calendar.DAY_OF_MONTH, d - 1)
+            }
+            val active = d == day
+            val isToday = week == currentWeek() && d == todayIndex
+            val cell = Ui.text(
+                this,
+                "${"一二三四五六日"[d - 1]}\n${cal.get(Calendar.DAY_OF_MONTH)}",
+                11f,
+                if (active) Color.WHITE else if (isToday) Ui.ACCENT else Ui.TEXT_SECONDARY,
+                bold = active || isToday,
+                gravity = Gravity.CENTER
+            ).apply {
+                background = if (active) {
+                    Ui.rounded(this@MainActivity, Ui.ACCENT, 10f)
+                } else {
+                    Ui.rounded(
+                        this@MainActivity, 0xFFF1F3F8.toInt(), 10f,
+                        if (isToday) 1f else 0f, Ui.ACCENT
+                    )
+                }
+                setPadding(0, dp(5f), 0, dp(5f))
+                setLineSpacing(0f, 1.15f)
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply { if (d > 1) marginStart = dp(4f) }
+                setOnClickListener {
+                    selectedDay = d
+                    renderDayPicker(d, todayIndex())
+                    renderTodayCard(d, todayIndex())
+                }
+            }
+            dayPicker.addView(cell)
+        }
+    }
+
+    private fun renderTodayCard(day: Int, todayIndex: Int) {
         if (courses.isEmpty()) {
             todayTitle.text = "还没有课表"
             todayDetail.text = "点右上角「同步」，登录教务后自动导入"
-        } else {
-            val todayCourses = courses
-                .filter { it.day == todayIndex && it.weeks.contains(week) }
-                .sortedBy { it.startSection }
-            if (todayCourses.isEmpty()) {
-                todayTitle.text = "今天没有课"
-                todayDetail.text = "第 $week 周，共 ${courses.count { it.weeks.contains(week) }} 门课待上"
-            } else {
-                val campus = prefs.campus
-                todayTitle.text = "今天 ${todayCourses.size} 门课"
-                todayDetail.text = todayCourses.take(2).joinToString("    ") {
-                    val time = SectionTimes.range(campus, it.startSection, it.endSection)
-                    val whenText = time.ifEmpty { "第${it.startSection}-${it.endSection}节" }
-                    val room = SectionTimes.shortRoom(it.room)
-                    "$whenText ${it.name}" + if (room.isEmpty()) "" else " · $room"
-                }
-            }
+            return
         }
+
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = weekStartMillis()
+            add(Calendar.DAY_OF_MONTH, day - 1)
+        }
+        val head = SimpleDateFormat("M月d日", Locale.CHINA).format(cal.time) +
+            " · 周" + "一二三四五六日"[day - 1]
+        todayTitle.text =
+            if (week == currentWeek() && day == todayIndex) "$head · 今天" else head
+
+        val dayCourses = courses
+            .filter { it.day == day && it.weeks.contains(week) }
+            .sortedBy { it.startSection }
+        if (dayCourses.isEmpty()) {
+            todayDetail.text = "没有课 · 本周共 ${courses.count { it.weeks.contains(week) }} 门课"
+            return
+        }
+        val campus = prefs.campus
+        todayDetail.text = dayCourses.take(2).joinToString("    ") {
+            val time = SectionTimes.range(campus, it.startSection, it.endSection)
+            val whenText = time.ifEmpty { "第${it.startSection}-${it.endSection}节" }
+            val room = SectionTimes.shortRoom(it.room)
+            "$whenText ${it.name}" + if (room.isEmpty()) "" else " · $room"
+        }
+    }
+
+    /** 当前查看这一周的周一零点。 */
+    private fun weekStartMillis(): Long {
+        val format = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+        val start = try {
+            format.parse(prefs.termStart)?.time
+        } catch (e: Exception) {
+            null
+        } ?: System.currentTimeMillis()
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = start
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return cal.timeInMillis + (week - 1) * 7L * 86400000L
     }
 
     private fun renderStatus() {
