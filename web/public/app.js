@@ -321,33 +321,50 @@ function sectionRange(campus, start, end, index) {
   return { start: a, end: b, label: `${start}-${end} 节 · ${a}-${b}` };
 }
 
+let pickDay = null; // 顶部日期条选中的星期（1-7），换周时清空
+
 function renderToday() {
   const card = $('#todayCard');
   card.hidden = false;
   card.innerHTML = '';
 
   const nowWeek = currentWeek();
-  if (viewWeek !== nowWeek) {
-    card.hidden = true;
-    return;
-  }
+  const todayDay = (new Date().getDay() + 6) % 7 + 1;
+  const day = pickDay || (viewWeek === nowWeek ? todayDay : 1);
+  const isToday = viewWeek === nowWeek && day === todayDay;
+  const date = addDays(weekMonday(viewWeek), day - 1);
+  const now = new Date().getHours() * 60 + new Date().getMinutes();
 
-  const today = new Date();
-  const day = (today.getDay() + 6) % 7 + 1;
-  const todayKey = ymd(today);
-  const now = today.getHours() * 60 + today.getMinutes();
+  // 星期选择条：手机上一排点着换天，下面是所选那天的课
+  const picker = el('div', 'daypick');
+  const weekend = !!settings.showWeekend || allCourses().some((c) => Number(c.day) >= 6);
+  const dayList = weekend ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5];
+  for (const d of dayList) {
+    const cell = addDays(weekMonday(viewWeek), d - 1);
+    const btn = el('button', 'daypick-btn' + (d === day ? ' active' : ''), DAY_NAMES[d - 1]);
+    btn.type = 'button';
+    if (viewWeek === nowWeek && d === todayDay) btn.classList.add('today');
+    btn.append(el('small', null, String(cell.getDate())));
+    btn.addEventListener('click', () => {
+      pickDay = d;
+      renderToday();
+    });
+    picker.append(btn);
+  }
+  card.append(picker);
 
   const list = allCourses()
-    .filter((c) => Number(c.day) === day && inWeek(c, nowWeek, {}))
+    .filter((c) => Number(c.day) === day && inWeek(c, viewWeek, {}))
     .sort((a, b) => a.start - b.start);
 
   const head = el('div', 'today-head');
-  head.append(el('h2', null, `今天 · ${DAY_NAMES[day - 1]}`));
-  head.append(el('span', null, `${today.getMonth() + 1}月${today.getDate()}日`));
+  head.append(el('h2', null, `${date.getMonth() + 1}月${date.getDate()}日 · ${DAY_NAMES[day - 1]}`));
+  const tail = isToday ? '今天' : viewWeek === nowWeek ? '' : `第 ${viewWeek} 周`;
+  head.append(el('span', null, tail));
   card.append(head);
 
   if (!list.length) {
-    card.append(el('div', 'today-empty', '今天没有课，休息一下'));
+    card.append(el('div', 'today-empty', `${DAY_NAMES[day - 1]}没有课，休息一下`));
     return;
   }
 
@@ -359,8 +376,10 @@ function renderToday() {
     const row = el('button', 'today-item');
     row.type = 'button';
     row.dataset.id = c.id;
-    if (endMin !== null && now > endMin) row.classList.add('over');
-    else if (startMin !== null && endMin !== null && now >= startMin) row.classList.add('now');
+    if (isToday) {
+      if (endMin !== null && now > endMin) row.classList.add('over');
+      else if (startMin !== null && endMin !== null && now >= startMin) row.classList.add('now');
+    }
 
     const time = el('div', 'ti-time', `${range.start}\n${range.end}`);
     time.style.whiteSpace = 'pre-line';
@@ -372,7 +391,7 @@ function renderToday() {
     const badge = el('div', 'ti-badge');
     if (row.classList.contains('now')) badge.textContent = '进行中';
     else if (row.classList.contains('over')) badge.textContent = '已结束';
-    else if (startMin !== null) badge.textContent = `${Math.max(0, startMin - now)} 分钟后`;
+    else if (isToday && startMin !== null) badge.textContent = `${Math.max(0, startMin - now)} 分钟后`;
     else badge.textContent = '';
 
     row.append(time, main, badge);
@@ -1006,14 +1025,17 @@ async function downloadIcs() {
 function bind() {
   $('#btnPrev').addEventListener('click', () => {
     viewWeek = Math.max(1, viewWeek - 1);
+    pickDay = null;
     render();
   });
   $('#btnNext').addEventListener('click', () => {
     viewWeek = Math.min(30, viewWeek + 1);
+    pickDay = null;
     render();
   });
   $('#btnToday').addEventListener('click', () => {
     viewWeek = currentWeek();
+    pickDay = null;
     render();
   });
   $('#btnSync').addEventListener('click', onSync);
