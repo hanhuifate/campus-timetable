@@ -1,6 +1,6 @@
 {
-  "syncedAt": "2026-11-09T05:56:20.446Z",
-  "count": 17,
+  "syncedAt": "2026-11-11T00:00:09.168Z",
+  "count": 18,
   "courses": [
     {
       "name": "大学英语(1)",
@@ -99,6 +99,18 @@
       "custom": false
     },
     {
+      "name": "国家安全教育和军事理论",
+      "teacher": "贾舒斐",
+      "room": "白马校区1号楼-白马校区1525",
+      "day": 3,
+      "start": 9,
+      "end": 10,
+      "weeks": "15",
+      "color": 1,
+      "id": "a862c37d9623",
+      "custom": false
+    },
+    {
       "name": "电子信息工程导论",
       "teacher": "李春,焦..",
       "room": "白马校区6号楼-白马校区6114",
@@ -153,9 +165,9 @@
       "day": 5,
       "start": 3,
       "end": 4,
-      "weeks": "6-17",
+      "weeks": "6-9,11-17",
       "color": 1,
-      "id": "0dcd32faaaaa",
+      "id": "0cd1c65d7ab3",
       "custom": false
     },
     {
